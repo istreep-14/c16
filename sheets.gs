@@ -98,6 +98,17 @@ const SheetsManager = {
       'callback_pgn_headers', 'callback_analysis_depth', 'callback_best_move', 'callback_evaluation',
       'callback_clocks', 'callback_move_times', 'callback_raw_data',
       
+      // Additional callback-derived fields (rating changes, profiles)
+      'game_rating_change_white', 'game_rating_change_black',
+      'my_rating_change_callback', 'opponent_rating_change_callback',
+      'my_pregame_rating', 'opponent_pregame_rating',
+      'my_country_name_callback', 'opponent_country_name_callback',
+      'my_default_tab_callback', 'opponent_default_tab_callback',
+      'my_post_move_action_callback', 'opponent_post_move_action_callback',
+      'my_membership_level_callback', 'opponent_membership_level_callback',
+      'my_membership_code_callback', 'opponent_membership_code_callback',
+      'my_member_since_callback', 'opponent_member_since_callback',
+      
       // Processing metadata
       'processed_timestamp', 'processing_version'
     ];
