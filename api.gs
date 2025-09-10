@@ -14,8 +14,12 @@ const ChessAPI = {
    */
   rateLimiter: {
     requests: [],
-    limit: CONSTANTS.API_RATE_LIMIT,
-    period: CONSTANTS.API_RATE_PERIOD
+    get limit() {
+      return CONSTANTS.API_RATE_LIMIT;
+    },
+    get period() {
+      return CONSTANTS.API_RATE_PERIOD;
+    }
   },
   
   /**
