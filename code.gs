@@ -121,6 +121,9 @@ function updatePlayerStats() {
     const stats = ChessAPI.getPlayerStats(username);
     const profile = ChessAPI.getPlayerProfile(username);
     
+    // Append to Player Stats sheet
+    SheetsManager.appendPlayerStats(profile, stats);
+    
     // Store latest ratings for each format
     const ratings = {};
     const formats = ['chess_bullet', 'chess_blitz', 'chess_rapid', 'chess_daily'];
@@ -137,7 +140,8 @@ function updatePlayerStats() {
     SpreadsheetApp.getUi().alert(
       'Stats Updated',
       `Updated ratings for ${username}:\n` +
-      Object.entries(ratings).map(([k, v]) => `${k}: ${v}`).join('\n'),
+      Object.entries(ratings).map(([k, v]) => `${k}: ${v}`).join('\n') +
+      '\n\nData has been appended to the Player Stats sheet.',
       SpreadsheetApp.getUi().ButtonSet.OK
     );
     

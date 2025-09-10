@@ -16,6 +16,9 @@ const SheetsManager = {
     // Create Daily Stats sheet
     this.createDailyStatsSheet(ss);
     
+    // Create Player Stats sheet
+    this.createPlayerStatsSheet(ss);
+    
     // Create Logs sheet
     this.createLogsSheet(ss);
     
@@ -55,7 +58,7 @@ const SheetsManager = {
   getGamesHeaders: function() {
     return [
       // Basic game info
-      'url', 'uuid', 'pgn', 'time_control', 'end_time', 'rated', 'tcn', 'initial_setup',
+      'url', 'uuid', 'pgn', 'time_control', 'end_time', 'end_time_formatted', 'rated', 'tcn', 'initial_setup',
       
       // Time fields (parsed from JSON)
       'year', 'month', 'day', 'hour', 'minute', 'timestamp_local',
@@ -91,6 +94,9 @@ const SheetsManager = {
       'callback_processed', 'callback_timestamp',
       'white_rating_change_exact', 'black_rating_change_exact',
       'white_accuracy', 'black_accuracy',
+      'callback_game_id', 'callback_variant', 'callback_initial_setup', 'callback_fen',
+      'callback_pgn_headers', 'callback_analysis_depth', 'callback_best_move', 'callback_evaluation',
+      'callback_clocks', 'callback_move_times', 'callback_raw_data',
       
       // Processing metadata
       'processed_timestamp', 'processing_version'
@@ -113,6 +119,42 @@ const SheetsManager = {
       'total_time_minutes', 'avg_game_duration',
       'longest_win_streak', 'longest_loss_streak',
       'opponents_avg_rating', 'performance_rating'
+    ];
+    
+    sheet.clear();
+    sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+    sheet.getRange(1, 1, 1, headers.length).setFontWeight('bold');
+    sheet.setFrozenRows(1);
+    
+    return sheet;
+  },
+  
+  /**
+   * Creates the Player Stats sheet
+   */
+  createPlayerStatsSheet: function(ss) {
+    let sheet = ss.getSheetByName('Player Stats');
+    if (!sheet) {
+      sheet = ss.insertSheet('Player Stats');
+    }
+    
+    // Headers for all possible stat fields from the API
+    const headers = [
+      'timestamp', 'username', 'status', 'joined', 'last_online', 'country', 'location', 'title', 'name', 'url', 'followers', 'is_streamer', 'twitch_url', 'fide',
+      // Time class stats
+      'chess_daily_last_rating', 'chess_daily_best_rating', 'chess_daily_best_rating_date',
+      'chess_daily_win', 'chess_daily_loss', 'chess_daily_draw',
+      'chess_rapid_last_rating', 'chess_rapid_best_rating', 'chess_rapid_best_rating_date',
+      'chess_rapid_win', 'chess_rapid_loss', 'chess_rapid_draw',
+      'chess_blitz_last_rating', 'chess_blitz_best_rating', 'chess_blitz_best_rating_date',
+      'chess_blitz_win', 'chess_blitz_loss', 'chess_blitz_draw',
+      'chess_bullet_last_rating', 'chess_bullet_best_rating', 'chess_bullet_best_rating_date',
+      'chess_bullet_win', 'chess_bullet_loss', 'chess_bullet_draw',
+      // Variant stats
+      'chess960_daily_last_rating', 'chess960_daily_best_rating', 'chess960_daily_best_rating_date',
+      'chess960_daily_win', 'chess960_daily_loss', 'chess960_daily_draw',
+      'puzzle_rush_best_score', 'puzzle_rush_best_date',
+      'tactics_highest_rating', 'tactics_highest_rating_date', 'tactics_lowest_rating', 'tactics_lowest_rating_date'
     ];
     
     sheet.clear();
@@ -448,5 +490,113 @@ const SheetsManager = {
     return games.filter(game => {
       return !existingUrls.has(game.url) && !existingUuids.has(game.uuid);
     });
+  },
+  
+  /**
+   * Appends player stats to the Player Stats sheet
+   */
+  appendPlayerStats: function(profileData, statsData) {
+    const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Player Stats');
+    if (!sheet) return;
+    
+    const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+    const row = new Array(headers.length).fill('');
+    
+    // Add timestamp
+    row[headers.indexOf('timestamp')] = new Date();
+    
+    // Add profile data
+    if (profileData) {
+      row[headers.indexOf('username')] = profileData.username || '';
+      row[headers.indexOf('status')] = profileData.status || '';
+      row[headers.indexOf('joined')] = profileData.joined ? new Date(profileData.joined * 1000) : '';
+      row[headers.indexOf('last_online')] = profileData.last_online ? new Date(profileData.last_online * 1000) : '';
+      row[headers.indexOf('country')] = profileData.country || '';
+      row[headers.indexOf('location')] = profileData.location || '';
+      row[headers.indexOf('title')] = profileData.title || '';
+      row[headers.indexOf('name')] = profileData.name || '';
+      row[headers.indexOf('url')] = profileData.url || '';
+      row[headers.indexOf('followers')] = profileData.followers || 0;
+      row[headers.indexOf('is_streamer')] = profileData.is_streamer || false;
+      row[headers.indexOf('twitch_url')] = profileData.twitch_url || '';
+      row[headers.indexOf('fide')] = profileData.fide || '';
+    }
+    
+    // Add stats data
+    if (statsData) {
+      // Chess daily stats
+      if (statsData.chess_daily) {
+        const daily = statsData.chess_daily;
+        row[headers.indexOf('chess_daily_last_rating')] = daily.last?.rating || '';
+        row[headers.indexOf('chess_daily_best_rating')] = daily.best?.rating || '';
+        row[headers.indexOf('chess_daily_best_rating_date')] = daily.best?.date ? new Date(daily.best.date * 1000) : '';
+        row[headers.indexOf('chess_daily_win')] = daily.record?.win || 0;
+        row[headers.indexOf('chess_daily_loss')] = daily.record?.loss || 0;
+        row[headers.indexOf('chess_daily_draw')] = daily.record?.draw || 0;
+      }
+      
+      // Chess rapid stats
+      if (statsData.chess_rapid) {
+        const rapid = statsData.chess_rapid;
+        row[headers.indexOf('chess_rapid_last_rating')] = rapid.last?.rating || '';
+        row[headers.indexOf('chess_rapid_best_rating')] = rapid.best?.rating || '';
+        row[headers.indexOf('chess_rapid_best_rating_date')] = rapid.best?.date ? new Date(rapid.best.date * 1000) : '';
+        row[headers.indexOf('chess_rapid_win')] = rapid.record?.win || 0;
+        row[headers.indexOf('chess_rapid_loss')] = rapid.record?.loss || 0;
+        row[headers.indexOf('chess_rapid_draw')] = rapid.record?.draw || 0;
+      }
+      
+      // Chess blitz stats
+      if (statsData.chess_blitz) {
+        const blitz = statsData.chess_blitz;
+        row[headers.indexOf('chess_blitz_last_rating')] = blitz.last?.rating || '';
+        row[headers.indexOf('chess_blitz_best_rating')] = blitz.best?.rating || '';
+        row[headers.indexOf('chess_blitz_best_rating_date')] = blitz.best?.date ? new Date(blitz.best.date * 1000) : '';
+        row[headers.indexOf('chess_blitz_win')] = blitz.record?.win || 0;
+        row[headers.indexOf('chess_blitz_loss')] = blitz.record?.loss || 0;
+        row[headers.indexOf('chess_blitz_draw')] = blitz.record?.draw || 0;
+      }
+      
+      // Chess bullet stats
+      if (statsData.chess_bullet) {
+        const bullet = statsData.chess_bullet;
+        row[headers.indexOf('chess_bullet_last_rating')] = bullet.last?.rating || '';
+        row[headers.indexOf('chess_bullet_best_rating')] = bullet.best?.rating || '';
+        row[headers.indexOf('chess_bullet_best_rating_date')] = bullet.best?.date ? new Date(bullet.best.date * 1000) : '';
+        row[headers.indexOf('chess_bullet_win')] = bullet.record?.win || 0;
+        row[headers.indexOf('chess_bullet_loss')] = bullet.record?.loss || 0;
+        row[headers.indexOf('chess_bullet_draw')] = bullet.record?.draw || 0;
+      }
+      
+      // Chess960 daily stats
+      if (statsData.chess960_daily) {
+        const chess960 = statsData.chess960_daily;
+        row[headers.indexOf('chess960_daily_last_rating')] = chess960.last?.rating || '';
+        row[headers.indexOf('chess960_daily_best_rating')] = chess960.best?.rating || '';
+        row[headers.indexOf('chess960_daily_best_rating_date')] = chess960.best?.date ? new Date(chess960.best.date * 1000) : '';
+        row[headers.indexOf('chess960_daily_win')] = chess960.record?.win || 0;
+        row[headers.indexOf('chess960_daily_loss')] = chess960.record?.loss || 0;
+        row[headers.indexOf('chess960_daily_draw')] = chess960.record?.draw || 0;
+      }
+      
+      // Puzzle rush stats
+      if (statsData.puzzle_rush && statsData.puzzle_rush.best) {
+        row[headers.indexOf('puzzle_rush_best_score')] = statsData.puzzle_rush.best.score || '';
+        row[headers.indexOf('puzzle_rush_best_date')] = statsData.puzzle_rush.best.date ? new Date(statsData.puzzle_rush.best.date * 1000) : '';
+      }
+      
+      // Tactics stats
+      if (statsData.tactics) {
+        row[headers.indexOf('tactics_highest_rating')] = statsData.tactics.highest?.rating || '';
+        row[headers.indexOf('tactics_highest_rating_date')] = statsData.tactics.highest?.date ? new Date(statsData.tactics.highest.date * 1000) : '';
+        row[headers.indexOf('tactics_lowest_rating')] = statsData.tactics.lowest?.rating || '';
+        row[headers.indexOf('tactics_lowest_rating_date')] = statsData.tactics.lowest?.date ? new Date(statsData.tactics.lowest.date * 1000) : '';
+      }
+    }
+    
+    // Append the row
+    sheet.appendRow(row);
+    
+    return true;
   }
 };
