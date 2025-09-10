@@ -14,8 +14,18 @@ const ChessAPI = {
    */
   rateLimiter: {
     requests: [],
-    limit: CONSTANTS.API_RATE_LIMIT,
-    period: CONSTANTS.API_RATE_PERIOD
+    limit: null,
+    period: null
+  },
+  
+  /**
+   * Ensures rate limiter is configured with constants
+   */
+  ensureRateLimiterConfigured: function() {
+    if (typeof this.rateLimiter.limit !== 'number' || typeof this.rateLimiter.period !== 'number') {
+      this.rateLimiter.limit = CONSTANTS.API_RATE_LIMIT;
+      this.rateLimiter.period = CONSTANTS.API_RATE_PERIOD;
+    }
   },
   
   /**
@@ -77,6 +87,7 @@ const ChessAPI = {
    * Checks and enforces rate limit
    */
   checkRateLimit: function() {
+    this.ensureRateLimiterConfigured();
     const now = Date.now();
     const cutoff = now - this.rateLimiter.period;
     
