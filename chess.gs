@@ -19,17 +19,17 @@ const GameDataProcessor = {
     // Add parsed PGN headers
     Object.assign(game, pgnData.headers);
     
-    // Parse moves and clocks
-    const moveData = this.parseMoves(pgnData.moves);
+    // Parse time control first to get base time and increment
+    const timeControl = this.parseTimeControl(game.time_control);
+    Object.assign(game, timeControl);
+    
+    // Parse moves and clocks with time control info
+    const moveData = this.parseMoves(pgnData.moves, timeControl.base_time_seconds, timeControl.increment_seconds);
     Object.assign(game, moveData);
     
     // Add time fields
     const timeFields = this.parseTimeFields(game.end_time);
     Object.assign(game, timeFields);
-    
-    // Parse time control
-    const timeControl = this.parseTimeControl(game.time_control);
-    Object.assign(game, timeControl);
     
     // Determine format
     game.format = this.determineFormat(game);
@@ -77,7 +77,8 @@ const GameDataProcessor = {
             'result': 'pgn_result',
             'whiteelo': 'pgn_white_elo',
             'blackelo': 'pgn_black_elo',
-            'eco': 'pgn_eco',
+            'eco': 'eco',  // Direct mapping to eco field
+            'ecourl': 'eco_url',  // Direct mapping to eco_url field
             'opening': 'pgn_opening',
             'termination': 'pgn_termination',
             'currentposition': 'pgn_current_position'
@@ -105,7 +106,7 @@ const GameDataProcessor = {
   /**
    * Parses moves and extracts clock times
    */
-  parseMoves: function(moveText) {
+  parseMoves: function(moveText, baseTime = null, increment = 0) {
     if (!moveText) return {};
     
     // Extract moves with clocks
@@ -126,7 +127,9 @@ const GameDataProcessor = {
     clockMatches.forEach(clockMatch => {
       const timeStr = clockMatch[1];
       clocks.push(timeStr);
-      clockSeconds.push(this.parseClockToSeconds(timeStr));
+      // Parse to single decimal precision
+      const seconds = Math.round(this.parseClockToSeconds(timeStr) * 10) / 10;
+      clockSeconds.push(seconds);
     });
     
     // Extract moves without clocks for SAN list
@@ -147,30 +150,31 @@ const GameDataProcessor = {
       }
     });
     
-    // Calculate time per move
+    // Calculate time per move with proper logic
     const timePerMove = [];
+    const initialTime = baseTime || Math.max(...clockSeconds);
+    
     for (let i = 0; i < clockSeconds.length; i++) {
+      let timeTaken = 0;
+      
       if (i === 0) {
-        // First move - calculate from initial time
-        const initialTime = Math.max(...clockSeconds);
-        timePerMove.push(initialTime - clockSeconds[i]);
+        // White's first move: base time - clock_seconds[0]
+        timeTaken = initialTime - clockSeconds[0];
+      } else if (i === 1) {
+        // Black's first move: base time - clock_seconds[1]
+        timeTaken = initialTime - clockSeconds[1];
       } else {
-        // Check if this is the same player (every other move)
-        if (i % 2 === 0) {
-          // White's move - compare with white's previous clock
-          const prevClock = i >= 2 ? clockSeconds[i - 2] : Math.max(...clockSeconds);
-          const timeTaken = prevClock - clockSeconds[i];
-          
-          // Account for increment (will be added by increment logic)
-          timePerMove.push(Math.max(0, timeTaken));
-        } else {
-          // Black's move - compare with black's previous clock
-          const prevClock = i >= 2 ? clockSeconds[i - 2] : Math.max(...clockSeconds);
-          const timeTaken = prevClock - clockSeconds[i];
-          
-          timePerMove.push(Math.max(0, timeTaken));
-        }
+        // Subsequent moves: compare with same player's previous clock
+        const prevIndex = i - 2;
+        const prevClock = clockSeconds[prevIndex];
+        const currentClock = clockSeconds[i];
+        
+        // Time taken = previous clock - current clock + increment
+        timeTaken = prevClock - currentClock + increment;
       }
+      
+      // Round to single decimal precision
+      timePerMove.push(Math.round(Math.max(0, timeTaken) * 10) / 10);
     }
     
     // Calculate game duration
@@ -252,7 +256,8 @@ const GameDataProcessor = {
       day: date.getDate(),
       hour: date.getHours(),
       minute: date.getMinutes(),
-      timestamp_local: endTime // Keep original epoch for sorting
+      timestamp_local: endTime, // Keep original epoch for sorting
+      end_time_formatted: Utilities.formatDate(date, Session.getScriptTimeZone(), "yyyy-MM-dd HH:mm:ss") // Human readable format
     };
   },
   
@@ -265,11 +270,13 @@ const GameDataProcessor = {
     // Handle different formats: "180", "180+1", "1/86400"
     let baseTime = 0;
     let increment = 0;
+    let movesPerTime = null;
     
     if (timeControlStr.includes('/')) {
-      // Daily format: moves/seconds
+      // Daily format: moves/seconds (e.g., "1/86400" means 1 move per 86400 seconds/day)
       const parts = timeControlStr.split('/');
-      baseTime = parseInt(parts[1]);
+      movesPerTime = parseInt(parts[0]);
+      baseTime = parseInt(parts[1]); // Time per move in seconds for daily games
     } else if (timeControlStr.includes('+')) {
       // Live format with increment
       const parts = timeControlStr.split('+');
@@ -282,8 +289,24 @@ const GameDataProcessor = {
     
     return {
       base_time_seconds: baseTime,
-      increment_seconds: increment
+      increment_seconds: increment,
+      moves_per_time: movesPerTime // For daily games
     };
+  },
+  
+  /**
+   * Classifies game speed based on time control
+   */
+  classifySpeed: function(baseSeconds, incrementSeconds) {
+    if (!baseSeconds && baseSeconds !== 0) return '';
+    
+    const inc = incrementSeconds || 0;
+    const classNumber = Number(baseSeconds) + Number(inc) * 40;
+    
+    if (classNumber < 180) return 'bullet';
+    if (classNumber < 480) return 'blitz';
+    if (classNumber < 1500) return 'rapid';
+    return 'daily';
   },
   
   /**
@@ -307,18 +330,14 @@ const GameDataProcessor = {
       return game.rules; // bughouse, crazyhouse, etc.
     }
     
-    // Standard chess - use time class
+    // Standard chess - use time class if provided
     if (game.time_class) {
       return game.time_class; // bullet, blitz, rapid
     }
     
-    // Fallback based on base time
-    const baseTime = game.base_time_seconds || 0;
-    
-    if (baseTime < 180) return 'bullet';
-    if (baseTime < 600) return 'blitz';
-    if (baseTime < 1800) return 'rapid';
-    return 'daily';
+    // Fallback - calculate time class
+    const timeClass = this.classifySpeed(game.base_time_seconds, game.increment_seconds);
+    return timeClass;
   },
   
   /**
