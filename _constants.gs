@@ -6,7 +6,9 @@
 /**
  * Constants for the system
  */
-const CONSTANTS = {
+// Check if CONSTANTS already exists to avoid redeclaration
+if (typeof CONSTANTS === 'undefined') {
+  var CONSTANTS = {
   BATCH_SIZE: 100,
   CALLBACK_BATCH_SIZE: 50,
   MAX_EXECUTION_TIME: 300000, // 5 minutes in milliseconds
@@ -29,3 +31,4 @@ const CONSTANTS = {
     'koth', 'antichess', 'atomic', 'horde', 'racingkings'
   ]
 };
+}
