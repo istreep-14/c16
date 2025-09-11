@@ -154,12 +154,12 @@ class DailyStatsProcessor {
       stats.games_played = games.length;
       
       games.forEach(game => {
-        // Count results
-        if (game.my_result === 1) {
+        // Count results (use numeric my_outcome)
+        if (game.my_outcome === 1) {
           stats.wins++;
-        } else if (game.my_result === 0) {
+        } else if (game.my_outcome === 0) {
           stats.losses++;
-        } else if (game.my_result === 0.5) {
+        } else if (game.my_outcome === 0.5) {
           stats.draws++;
         }
         
@@ -187,7 +187,7 @@ class DailyStatsProcessor {
       stats.performance_rating = RatingUtils.calculatePerformanceRating(games);
       
       // Calculate streaks
-      const results = games.map(g => g.my_result).filter(r => r !== null);
+      const results = games.map(g => g.my_outcome).filter(r => r !== null);
       const streaks = DataUtils.calculateStreaks(results);
       stats.longest_win_streak = streaks.longestWin;
       stats.longest_loss_streak = streaks.longestLoss;

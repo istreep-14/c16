@@ -132,9 +132,9 @@ const RatingUtils = {
     let count = 0;
     
     games.forEach(game => {
-      if (game.opponent_rating && game.my_result !== null) {
+      if (game.opponent_rating && game.my_outcome !== null) {
         totalOpponentRating += game.opponent_rating;
-        totalScore += game.my_result;
+        totalScore += game.my_outcome;
         count++;
       }
     });

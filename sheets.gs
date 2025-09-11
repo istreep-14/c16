@@ -64,14 +64,15 @@ const SheetsManager = {
   getGamesHeaders: function() {
     return [
       // Basic game info
-      'url', 'uuid', 'pgn', 'time_control', 'start', 'end', 'rated', 'tcn', 'initial_setup',
+      'url', 'pgn', 'time_control', 'start', 'end', 'rated',
+      'date', 'end_Time',
       
       // Time fields (parsed from JSON)
-      'year', 'month', 'day', 'hour', 'minute',
+      'year', 'month', 'day', 'hour', 'minute', 'second',
       
       // Player info
-      'white_username', 'white_rating', 'white_result', 'white_uuid',
-      'black_username', 'black_rating', 'black_result', 'black_uuid',
+      'white_username', 'white_rating', 'white_result',
+      'black_username', 'black_rating', 'black_result',
       
       // Game metadata
       'eco', 'eco_url', 'rules', 'time_class', 'format',
@@ -80,11 +81,9 @@ const SheetsManager = {
       'base_time_seconds', 'increment_seconds',
       
       // Derived fields
-      'my_color', 'my_username', 'my_rating', 'my_result',
-      'opponent_username', 'opponent_rating', 'opponent_result',
+      'my_color', 'my_username', 'my_rating', 'my_outcome',
+      'my_result', 'opponent_username', 'opponent_rating', 'opponent_result', 'termination',
       'game_duration_seconds', 'move_count', 'ply_count',
-      
-      // Expected outcome
       
       // Move data (stored as JSON strings)
       'moves_san', 'moves_numbered', 'clocks', 'clock_seconds', 'time_per_move',
@@ -244,6 +243,90 @@ const SheetsManager = {
           row[headerMap[key]] = value;
         }
       });
+      
+      // Derived/calculated fields
+      // date from year,month,day or parsed from end string
+      if (headerMap.hasOwnProperty('date')) {
+        const y = game.year, m = game.month, d = game.day;
+        if (y && m && d) {
+          row[headerMap['date']] = `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+        } else if (typeof game.end === 'string') {
+          const dm = game.end.match(/^(\d{4})-(\d{2})-(\d{2})/);
+          if (dm) {
+            row[headerMap['date']] = `${dm[1]}-${dm[2]}-${dm[3]}`;
+          }
+        }
+      }
+      
+      // end_Time and second from end string
+      if (typeof game.end === 'string') {
+        const tm = game.end.match(/\d{4}-\d{2}-\d{2}\s+(\d{2}):(\d{2}):(\d{2})$/);
+        if (tm) {
+          if (headerMap.hasOwnProperty('end_Time')) {
+            row[headerMap['end_Time']] = `${tm[1]}:${tm[2]}:${tm[3]}`;
+          }
+          if (headerMap.hasOwnProperty('second')) {
+            row[headerMap['second']] = parseInt(tm[3], 10);
+          }
+        }
+      }
+      
+      // Ensure my_outcome numeric; fallback mapping from my_result/opponent_result
+      if (headerMap.hasOwnProperty('my_outcome')) {
+        let outcome = game.my_outcome;
+        if (outcome === undefined || outcome === null || outcome === '') {
+          const resultMap = {
+            'win': 1,
+            'checkmated': 0,
+            'agreed': 0.5,
+            'repetition': 0.5,
+            'timeout': 0,
+            'resigned': 0,
+            'stalemate': 0.5,
+            'lose': 0,
+            'insufficient': 0.5,
+            'timevsinsufficient': 0.5,
+            'abandoned': 0
+          };
+          let myRes = game.my_result;
+          if (!myRes && game.my_color) {
+            if (game.my_color === 'white') {
+              myRes = game.white_result;
+            } else if (game.my_color === 'black') {
+              myRes = game.black_result;
+            }
+          }
+          if (myRes && resultMap.hasOwnProperty(myRes)) {
+            outcome = resultMap[myRes];
+          }
+        }
+        if (outcome !== undefined) {
+          row[headerMap['my_outcome']] = outcome;
+        }
+      }
+      
+      // Compute termination: the result that is not 'win'; if draw, both same so use either
+      if (headerMap.hasOwnProperty('termination')) {
+        let term = '';
+        const wr = game.white_result;
+        const br = game.black_result;
+        const isDraw = function(r) {
+          return ['agreed', 'repetition', 'stalemate', 'insufficient', 'timevsinsufficient'].indexOf(r) !== -1;
+        };
+        if (wr && br) {
+          if (isDraw(wr) && isDraw(br)) {
+            term = wr;
+          } else if (wr === 'win' && br && br !== 'win') {
+            term = br;
+          } else if (br === 'win' && wr && wr !== 'win') {
+            term = wr;
+          }
+        }
+        if (!term && game.pgn_termination) {
+          term = game.pgn_termination;
+        }
+        row[headerMap['termination']] = term || '';
+      }
       
       return row;
     });
@@ -412,7 +495,7 @@ const SheetsManager = {
     sheet.getRange(1, 1, 1, headers.length).setFontWeight('bold');
     sheet.setFrozenRows(1);
     return sheet;
-  }
+  },
   
   /**
    * Updates callback data for specific games
@@ -618,18 +701,16 @@ const SheetsManager = {
     const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Games');
     if (!sheet || sheet.getLastRow() <= 1) return games;
     
-    // Get existing URLs and UUIDs
+    // Get existing URLs
     const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
     const urlCol = headers.indexOf('url') + 1;
-    const uuidCol = headers.indexOf('uuid') + 1;
     
     const existingData = sheet.getRange(2, 1, sheet.getLastRow() - 1, sheet.getLastColumn()).getValues();
     const existingUrls = new Set(existingData.map(row => row[urlCol - 1]));
-    const existingUuids = new Set(existingData.map(row => row[uuidCol - 1]));
     
     // Filter out duplicates
     return games.filter(game => {
-      return !existingUrls.has(game.url) && !existingUuids.has(game.uuid);
+      return !existingUrls.has(game.url);
     });
   },
   
