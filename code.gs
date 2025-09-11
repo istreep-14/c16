@@ -14,6 +14,8 @@ function onOpen() {
     .addItem('Fetch New Games', 'fetchNewGames')
     .addItem('Update Player Stats', 'updatePlayerStats')
     .addItem('Update Daily Stats', 'updateDailyStats')
+    .addItem('Build Dates Sheet', 'buildDatesSheet')
+    .addItem('Update Today in Dates', 'updateDatesToday')
     .addItem('Process Callback Queue', 'processCallbackQueue')
     .addSeparator()
     .addItem('Historical Fetch (All Games)', 'historicalFetch')
