@@ -17,16 +17,19 @@ class DailyStatsProcessor {
    * Updates daily statistics
    */
   updateDailyStats() {
+    const t = Trace.start('DailyStatsProcessor.updateDailyStats', 'start');
     SheetsManager.log('INFO', 'Daily Stats', 'Starting daily stats update');
     
     // Get all games
     const games = SheetsManager.getGamesForDailyStats();
     
     if (games.length === 0) {
-      return {
+      const result = {
         daysProcessed: 0,
         totalGames: 0
       };
+      t.end({ daysProcessed: 0, totalGames: 0 });
+      return result;
     }
     
     // Add rating calculations to games
@@ -37,16 +40,20 @@ class DailyStatsProcessor {
     
     // Calculate statistics for each day
     Object.keys(dailyStats).forEach(dateKey => {
+      const dt = Trace.start('DailyStatsProcessor.calculateDayStats', 'day', { date: dateKey });
       this.calculateDayStats(dailyStats[dateKey], dateKey);
+      dt.end();
     });
     
     // Write to sheet
     SheetsManager.writeDailyStats(dailyStats);
     
-    return {
+    const result = {
       daysProcessed: Object.keys(dailyStats).length,
       totalGames: games.length
     };
+    t.end({ daysProcessed: result.daysProcessed, totalGames: result.totalGames });
+    return result;
   }
   
   /**

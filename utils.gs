@@ -333,3 +333,71 @@ const FormatUtils = {
     return game.url && game.url.includes('/daily/');
   }
 };
+
+/**
+ * Lightweight tracing utility for function entry/exit timing
+ */
+const Trace = {
+  isEnabled: function() {
+    try {
+      const flag = ConfigManager.get('traceEnabled');
+      return flag === true || flag === 'true' || flag === 'on' || flag === 1;
+    } catch (e) {
+      return false;
+    }
+  },
+  getMinMs: function() {
+    try {
+      const v = ConfigManager.get('traceMinMs');
+      return typeof v === 'number' ? v : 0;
+    } catch (e) {
+      return 0;
+    }
+  },
+  start: function(operation, message, details) {
+    if (!this.isEnabled()) {
+      return { end: function() {} };
+    }
+    const startMs = Date.now();
+    const meta = details || {};
+    try {
+      SheetsManager.log('TRACE', operation, message || 'start', meta);
+    } catch (e) {
+      // ignore logging errors
+    }
+    const self = this;
+    return {
+      end: function(extra) {
+        try {
+          const duration = Date.now() - startMs;
+          if (duration >= self.getMinMs()) {
+            const det = Object.assign({}, meta, { duration_ms: duration }, extra || {});
+            SheetsManager.log('TRACE', operation, 'end', det);
+          }
+        } catch (e) {
+          // ignore logging errors
+        }
+      }
+    };
+  },
+  step: function(operation, message, details) {
+    if (!this.isEnabled()) return;
+    try {
+      SheetsManager.log('TRACE', operation, message, details || {});
+    } catch (e) {
+      // ignore
+    }
+  },
+  wrap: function(operation, message, fn) {
+    const t = this.start(operation, message);
+    try {
+      const result = fn();
+      t.end({ result: 'ok' });
+      return result;
+    } catch (e) {
+      try { SheetsManager.log('ERROR', operation, e.toString(), { stack: e.stack || '' }); } catch (er) {}
+      t.end({ error: e && e.toString ? e.toString() : 'error' });
+      throw e;
+    }
+  }
+};

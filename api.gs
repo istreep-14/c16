@@ -26,6 +26,7 @@ const ChessAPI = {
    * Makes a rate-limited API request
    */
   request: function(url, options = {}) {
+    const t = Trace.start('API.request', 'fetch', { url: url });
     // Check rate limit
     this.checkRateLimit();
     
@@ -51,6 +52,7 @@ const ChessAPI = {
         if (code === 200) {
           // Success - record request and return
           this.recordRequest();
+          t.end({ code: 200 });
           return JSON.parse(response.getContentText());
         } else if (code === 429) {
           // Rate limited - wait and retry
@@ -63,10 +65,13 @@ const ChessAPI = {
           retries++;
         } else {
           // Client error - don't retry
-          throw new Error(`API Error ${code}: ${response.getContentText()}`);
+          const err = new Error(`API Error ${code}: ${response.getContentText()}`);
+          t.end({ error: err.toString(), code: code });
+          throw err;
         }
       } catch (error) {
         if (retries >= maxRetries) {
+          t.end({ error: error && error.toString ? error.toString() : 'error' });
           throw error;
         }
         Utilities.sleep(CONSTANTS.RETRY_DELAY * Math.pow(2, retries));
@@ -74,7 +79,9 @@ const ChessAPI = {
       }
     }
     
-    throw new Error('Max retries exceeded');
+    const err = new Error('Max retries exceeded');
+    t.end({ error: err.toString() });
+    throw err;
   },
   
   /**
@@ -184,6 +191,7 @@ class GameProcessor {
    * Processes new games incrementally
    */
   processNewGames(lastGameTime, checkpoint = {}) {
+    const t = Trace.start('GameProcessor.processNewGames', 'start', { lastGameTime: lastGameTime, checkpoint: checkpoint });
     const archives = ChessAPI.getArchives(this.username);
     let gamesProcessed = 0;
     let totalGames = 0;
@@ -196,7 +204,7 @@ class GameProcessor {
     for (let i = archives.length - 1 - startIndex; i >= 0; i--) {
       // Check execution time
       if (this.shouldCheckpoint()) {
-        return {
+        const result = {
           gamesProcessed,
           totalGames: SheetsManager.getLastGameTimestamp() ? 'Unknown' : totalGames,
           checkpoint: {
@@ -205,6 +213,8 @@ class GameProcessor {
             lastGameTime
           }
         };
+        t.end({ checkpoint: true, gamesProcessed: gamesProcessed });
+        return result;
       }
       
       const archive = archives[i];
@@ -233,14 +243,14 @@ class GameProcessor {
         
         if (uniqueGames.length > 0) {
           // Write games then keep Games sheet sorted newest-first
-          SheetsManager.batchWriteGames(uniqueGames);
+          SheetsManager.batchWriteGames(uniqueGames, { sort: false });
           // Append Ratings rows (they will be sorted within the helper)
           const sortedForRatings = uniqueGames.slice().sort((a, b) => {
             const ea = TimeUtils.parseLocalDateTimeToEpochSeconds(a.end) || (a.end_time || 0);
             const eb = TimeUtils.parseLocalDateTimeToEpochSeconds(b.end) || (b.end_time || 0);
             return ea - eb;
           });
-          SheetsManager.batchAppendRatingsFromGames(sortedForRatings);
+          SheetsManager.batchAppendRatingsFromGames(sortedForRatings, { sort: false });
           CallbackQueueManager.addToQueue(uniqueGames);
           gamesProcessed += uniqueGames.length;
         }
@@ -251,13 +261,13 @@ class GameProcessor {
     if (gameBuffer.length > 0) {
       const uniqueGames = SheetsManager.checkDuplicates(gameBuffer);
       if (uniqueGames.length > 0) {
-        SheetsManager.batchWriteGames(uniqueGames);
+        SheetsManager.batchWriteGames(uniqueGames, { sort: false });
         const sortedForRatings = uniqueGames.slice().sort((a, b) => {
           const ea = TimeUtils.parseLocalDateTimeToEpochSeconds(a.end) || (a.end_time || 0);
           const eb = TimeUtils.parseLocalDateTimeToEpochSeconds(b.end) || (b.end_time || 0);
           return ea - eb;
         });
-        SheetsManager.batchAppendRatingsFromGames(sortedForRatings);
+        SheetsManager.batchAppendRatingsFromGames(sortedForRatings, { sort: false });
         CallbackQueueManager.addToQueue(uniqueGames);
         gamesProcessed += uniqueGames.length;
       }
@@ -265,18 +275,24 @@ class GameProcessor {
     
     // Clear checkpoint on completion
     CheckpointManager.clear('fetchGames');
+    // Single final sort for this run
+    SheetsManager.sortGamesByEndDesc();
+    SheetsManager.sortRatingsByEndDesc();
     
-    return {
+    const result = {
       gamesProcessed,
       totalGames: SheetsManager.getLastGameTimestamp() ? 'Updated' : totalGames,
       checkpoint: {}
     };
+    t.end({ gamesProcessed: gamesProcessed });
+    return result;
   }
   
   /**
    * Processes all historical games
    */
   processHistoricalGames(checkpoint = {}) {
+    const t = Trace.start('GameProcessor.processHistoricalGames', 'start', { checkpoint: checkpoint });
     const archives = ChessAPI.getArchives(this.username);
     let gamesProcessed = checkpoint.gamesProcessed || 0;
     let archivesProcessed = checkpoint.archivesProcessed || 0;
@@ -289,7 +305,7 @@ class GameProcessor {
     for (let i = startIndex; i < archives.length; i++) {
       // Check execution time
       if (this.shouldCheckpoint()) {
-        return {
+        const result = {
           gamesProcessed,
           archivesProcessed,
           totalArchives: archives.length,
@@ -301,6 +317,8 @@ class GameProcessor {
             archivesProcessed
           }
         };
+        t.end({ checkpoint: true, gamesProcessed: gamesProcessed, archivesProcessed: archivesProcessed });
+        return result;
       }
       
       const archive = archives[i];
@@ -319,14 +337,14 @@ class GameProcessor {
         const uniqueGames = SheetsManager.checkDuplicates(batch);
         
         if (uniqueGames.length > 0) {
-          SheetsManager.batchWriteGames(uniqueGames);
+          SheetsManager.batchWriteGames(uniqueGames, { sort: false });
           // Append Ratings rows in chronological order for consistency
           const sortedForRatings = uniqueGames.slice().sort((a, b) => {
             const ea = TimeUtils.parseLocalDateTimeToEpochSeconds(a.end) || (a.end_time || 0);
             const eb = TimeUtils.parseLocalDateTimeToEpochSeconds(b.end) || (b.end_time || 0);
             return ea - eb;
           });
-          SheetsManager.batchAppendRatingsFromGames(sortedForRatings);
+          SheetsManager.batchAppendRatingsFromGames(sortedForRatings, { sort: false });
           CallbackQueueManager.addToQueue(uniqueGames);
           gamesProcessed += uniqueGames.length;
         }
@@ -339,13 +357,13 @@ class GameProcessor {
     if (gameBuffer.length > 0) {
       const uniqueGames = SheetsManager.checkDuplicates(gameBuffer);
       if (uniqueGames.length > 0) {
-        SheetsManager.batchWriteGames(uniqueGames);
+        SheetsManager.batchWriteGames(uniqueGames, { sort: false });
         const sortedForRatings = uniqueGames.slice().sort((a, b) => {
           const ea = TimeUtils.parseLocalDateTimeToEpochSeconds(a.end) || (a.end_time || 0);
           const eb = TimeUtils.parseLocalDateTimeToEpochSeconds(b.end) || (b.end_time || 0);
           return ea - eb;
         });
-        SheetsManager.batchAppendRatingsFromGames(sortedForRatings);
+        SheetsManager.batchAppendRatingsFromGames(sortedForRatings, { sort: false });
         CallbackQueueManager.addToQueue(uniqueGames);
         gamesProcessed += uniqueGames.length;
       }
@@ -353,14 +371,19 @@ class GameProcessor {
     
     // Clear checkpoint on completion
     CheckpointManager.clear('historicalFetch');
+    // Single final sort for this run
+    SheetsManager.sortGamesByEndDesc();
+    SheetsManager.sortRatingsByEndDesc();
     
-    return {
+    const result = {
       gamesProcessed,
       archivesProcessed,
       totalArchives: archives.length,
       complete: true,
       checkpoint: {}
     };
+    t.end({ gamesProcessed: gamesProcessed, archivesProcessed: archivesProcessed });
+    return result;
   }
   
   /**

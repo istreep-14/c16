@@ -17,6 +17,7 @@ class CallbackProcessor {
    * Processes the callback queue
    */
   processQueue(checkpoint = {}) {
+    const t = Trace.start('CallbackProcessor.processQueue', 'start', { checkpoint: checkpoint });
     SheetsManager.log('INFO', 'Callback', 'Starting callback queue processing');
     
     // Get pending items
@@ -48,6 +49,7 @@ class CallbackProcessor {
       }
       
       try {
+        const it = Trace.start('CallbackProcessor.item', 'process', { gameId: item.gameId });
         // Fetch callback data
         const callbackData = this.fetchCallbackData(item);
         
@@ -62,6 +64,7 @@ class CallbackProcessor {
           
           SheetsManager.log('INFO', 'Callback', `Processed game ${item.gameId}`);
         }
+        it.end();
         
       } catch (error) {
         // Handle error
@@ -83,7 +86,7 @@ class CallbackProcessor {
     // Get remaining stats
     const stats = CallbackQueueManager.getStats();
     
-    return {
+    const result = {
       processed: this.processed,
       failed: this.failed,
       remaining: stats.pending,
@@ -91,16 +94,21 @@ class CallbackProcessor {
         lastProcessedId: lastProcessedId
       }
     };
+    t.end({ processed: this.processed, failed: this.failed, remaining: stats.pending });
+    return result;
   }
   
   /**
    * Fetches callback data for a game
    */
   fetchCallbackData(queueItem) {
+    const t = Trace.start('CallbackProcessor.fetchCallbackData', 'fetch', { url: queueItem && queueItem.url });
     try {
       const callbackData = ChessAPI.getGameCallback(queueItem.url);
+      t.end();
       return callbackData;
     } catch (error) {
+      t.end({ error: error && error.toString ? error.toString() : 'error' });
       throw new Error(`Failed to fetch callback: ${error.toString()}`);
     }
   }
@@ -109,6 +117,7 @@ class CallbackProcessor {
    * Parses callback data into update format
    */
   parseCallbackData(callbackData, queueItem) {
+    const t = Trace.start('CallbackProcessor.parseCallbackData', 'parse', { gameId: queueItem && queueItem.gameId });
     const update = {
       url: queueItem.url,
       callback_processed: true,
@@ -259,6 +268,7 @@ class CallbackProcessor {
       if (opponentPlayer.memberSince !== undefined) update.opponent_member_since_callback = toDate(opponentPlayer.memberSince);
     }
     
+    t.end();
     return update;
   }
   

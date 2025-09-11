@@ -227,7 +227,7 @@ const SheetsManager = {
   /**
    * Batch writes games to the sheet
    */
-  batchWriteGames: function(games) {
+  batchWriteGames: function(games, options) {
     if (!games || games.length === 0) return;
     
     const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Games');
@@ -346,10 +346,13 @@ const SheetsManager = {
     
     // Append rows
     if (rows.length > 0) {
+      const t = Trace.start('Sheets.batchWriteGames', 'append rows', { rows: rows.length });
       const startRow = sheet.getLastRow() + 1;
       sheet.getRange(startRow, 1, rows.length, headers.length).setValues(rows);
-      // Sort newest games on top by 'end'
-      this.sortGamesByEndDesc();
+      // Sort newest games on top by 'end' unless disabled
+      const shouldSort = !(options && options.sort === false);
+      if (shouldSort) this.sortGamesByEndDesc();
+      t.end();
     }
     
     return rows.length;
@@ -412,7 +415,7 @@ const SheetsManager = {
   /**
    * Appends Ratings rows for a batch of games. Only the game's format column is filled.
    */
-  batchAppendRatingsFromGames: function(games) {
+  batchAppendRatingsFromGames: function(games, options) {
     if (!games || games.length === 0) return 0;
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     let sheet = ss.getSheetByName('Ratings');
@@ -436,16 +439,19 @@ const SheetsManager = {
     });
 
     const startRow = sheet.getLastRow() + 1;
+    const t = Trace.start('Sheets.batchAppendRatingsFromGames', 'append rows', { rows: rows.length });
     sheet.getRange(startRow, 1, rows.length, headers.length).setValues(rows);
-    // Sort newest on top
-    this.sortRatingsByEndDesc();
+    // Sort newest on top unless disabled
+    const shouldSort = !(options && options.sort === false);
+    if (shouldSort) this.sortRatingsByEndDesc();
+    t.end();
     return rows.length;
   },
 
   /**
    * Appends a Ratings row from player stats. Only known formats are filled.
    */
-  appendRatingsFromPlayerStats: function(statsData) {
+  appendRatingsFromPlayerStats: function(statsData, options) {
     if (!statsData) return false;
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     let sheet = ss.getSheetByName('Ratings');
@@ -473,8 +479,11 @@ const SheetsManager = {
       }
     });
 
+    const t = Trace.start('Sheets.appendRatingsFromPlayerStats', 'append row');
     sheet.appendRow(row);
-    this.sortRatingsByEndDesc();
+    const shouldSort = !(options && options.sort === false);
+    if (shouldSort) this.sortRatingsByEndDesc();
+    t.end();
     return true;
   },
   
@@ -504,22 +513,26 @@ const SheetsManager = {
     const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
     const urlCol = headers.indexOf('url') + 1;
     
-    // Get all URLs
-    const urls = sheet.getRange(2, urlCol, sheet.getLastRow() - 1, 1).getValues();
+    // Build URL -> row map once
+    const lastRow = sheet.getLastRow();
+    const urlValues = lastRow > 1 ? sheet.getRange(2, urlCol, lastRow - 1, 1).getValues() : [];
+    const urlToRow = {};
+    for (var i = 0; i < urlValues.length; i++) {
+      var u = urlValues[i][0];
+      if (u) urlToRow[u] = i + 2;
+    }
     
     // Find rows to update
     const updates = [];
     gameUpdates.forEach(update => {
-      const rowIndex = urls.findIndex(row => row[0] === update.url);
-      if (rowIndex !== -1) {
-        updates.push({
-          row: rowIndex + 2,
-          data: update
-        });
+      const rowNum = urlToRow[update.url];
+      if (rowNum) {
+        updates.push({ row: rowNum, data: update });
       }
     });
     
     // Apply updates
+    const t = Trace.start('Sheets.updateCallbackData', 'apply updates', { updates: updates.length });
     updates.forEach(update => {
       Object.keys(update.data).forEach(key => {
         const colIndex = headers.indexOf(key) + 1;
@@ -542,19 +555,24 @@ const SheetsManager = {
       const hasUrl = rHeaderMap.hasOwnProperty('url');
       if (hasUrl) {
         const urlCol = rHeaderMap['url'] + 1;
-        const lastRow = ratingsSheet.getLastRow();
-        const rUrls = lastRow > 1 ? ratingsSheet.getRange(2, urlCol, lastRow - 1, 1).getValues() : [];
+        const rLastRow = ratingsSheet.getLastRow();
+        const rUrlValues = rLastRow > 1 ? ratingsSheet.getRange(2, urlCol, rLastRow - 1, 1).getValues() : [];
+        const rUrlToRow = {};
+        for (var j = 0; j < rUrlValues.length; j++) {
+          var ru = rUrlValues[j][0];
+          if (ru) rUrlToRow[ru] = j + 2;
+        }
         updates.forEach(update => {
           const data = update.data || {};
           const url = data.url;
           if (!url) return;
-          const idx = rUrls.findIndex(row => row[0] === url);
-          if (idx !== -1) {
+          const rRow = rUrlToRow[url];
+          if (rRow) {
             if (data.my_pregame_rating != null && rHeaderMap.hasOwnProperty('my_pregame_rating')) {
-              ratingsSheet.getRange(idx + 2, rHeaderMap['my_pregame_rating'] + 1).setValue(data.my_pregame_rating);
+              ratingsSheet.getRange(rRow, rHeaderMap['my_pregame_rating'] + 1).setValue(data.my_pregame_rating);
             }
             if (data.my_rating != null && rHeaderMap.hasOwnProperty('my_rating')) {
-              ratingsSheet.getRange(idx + 2, rHeaderMap['my_rating'] + 1).setValue(data.my_rating);
+              ratingsSheet.getRange(rRow, rHeaderMap['my_rating'] + 1).setValue(data.my_rating);
             }
           } else {
             // Append a new ratings row for this URL
@@ -578,6 +596,7 @@ const SheetsManager = {
         this.sortRatingsByEndDesc();
       }
     }
+    t.end();
   },
 
   /**
@@ -770,9 +789,9 @@ const SheetsManager = {
     // Get existing URLs
     const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
     const urlCol = headers.indexOf('url') + 1;
-    
-    const existingData = sheet.getRange(2, 1, sheet.getLastRow() - 1, sheet.getLastColumn()).getValues();
-    const existingUrls = new Set(existingData.map(row => row[urlCol - 1]));
+    const lastRow = sheet.getLastRow();
+    const existingUrlValues = sheet.getRange(2, urlCol, lastRow - 1, 1).getValues();
+    const existingUrls = new Set(existingUrlValues.map(row => row[0]));
     
     // Filter out duplicates
     return games.filter(game => {
