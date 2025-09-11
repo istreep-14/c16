@@ -221,9 +221,9 @@ class GameProcessor {
         break;
       }
       
-      // Process games
-      // Monthly archive is oldest->newest per Chess.com docs; ensure we preserve that order here
-      const processedGames = newGames.map(game => GameDataProcessor.processGame(game, this.username));
+      // Process games newest->oldest within each monthly archive
+      const monthlyNewToOld = newGames.slice().reverse();
+      const processedGames = monthlyNewToOld.map(game => GameDataProcessor.processGame(game, this.username));
       gameBuffer = gameBuffer.concat(processedGames);
       
       // Write in batches
@@ -308,8 +308,9 @@ class GameProcessor {
       
       const games = ChessAPI.getMonthlyGames(archive);
       
-      // Process all games preserving archive order (oldest -> newest)
-      const processedGames = games.map(game => GameDataProcessor.processGame(game, this.username));
+      // Process all games newest->oldest within the month
+      const monthlyAllNewToOld = games.slice().reverse();
+      const processedGames = monthlyAllNewToOld.map(game => GameDataProcessor.processGame(game, this.username));
       gameBuffer = gameBuffer.concat(processedGames);
       
       // Write in batches
