@@ -192,7 +192,7 @@ class GameProcessor {
     let startIndex = checkpoint.archiveIndex || 0;
     let gameBuffer = checkpoint.gameBuffer || [];
     
-    // Process archives from most recent
+    // Process archives from most recent, but within each monthly archive process oldest-to-newest
     for (let i = archives.length - 1 - startIndex; i >= 0; i--) {
       // Check execution time
       if (this.shouldCheckpoint()) {
@@ -210,9 +210,9 @@ class GameProcessor {
       const archive = archives[i];
       const games = ChessAPI.getMonthlyGames(archive);
       
-      // Filter games newer than lastGameTime
-      // Filter using raw end_time epoch (from API) to compare to lastGameTime
-      const newGames = lastGameTime 
+      // Filter games newer than lastGameTime. Monthly archive is oldest->newest.
+      // Keep original order so that when we append, newest end up after earlier ones in this batch.
+      const newGames = lastGameTime
         ? games.filter(game => game.end_time > lastGameTime)
         : games;
       
@@ -221,8 +221,9 @@ class GameProcessor {
         break;
       }
       
-      // Process games
-      const processedGames = newGames.map(game => GameDataProcessor.processGame(game, this.username));
+      // Process games newest->oldest within each monthly archive
+      const monthlyNewToOld = newGames.slice().reverse();
+      const processedGames = monthlyNewToOld.map(game => GameDataProcessor.processGame(game, this.username));
       gameBuffer = gameBuffer.concat(processedGames);
       
       // Write in batches
@@ -231,8 +232,9 @@ class GameProcessor {
         const uniqueGames = SheetsManager.checkDuplicates(batch);
         
         if (uniqueGames.length > 0) {
+          // Write games then keep Games sheet sorted newest-first
           SheetsManager.batchWriteGames(uniqueGames);
-          // Ensure ratings rows append in chronological order (older first)
+          // Append Ratings rows (they will be sorted within the helper)
           const sortedForRatings = uniqueGames.slice().sort((a, b) => {
             const ea = TimeUtils.parseLocalDateTimeToEpochSeconds(a.end) || (a.end_time || 0);
             const eb = TimeUtils.parseLocalDateTimeToEpochSeconds(b.end) || (b.end_time || 0);
@@ -306,8 +308,9 @@ class GameProcessor {
       
       const games = ChessAPI.getMonthlyGames(archive);
       
-      // Process all games
-      const processedGames = games.map(game => GameDataProcessor.processGame(game, this.username));
+      // Process all games newest->oldest within the month
+      const monthlyAllNewToOld = games.slice().reverse();
+      const processedGames = monthlyAllNewToOld.map(game => GameDataProcessor.processGame(game, this.username));
       gameBuffer = gameBuffer.concat(processedGames);
       
       // Write in batches
@@ -317,6 +320,13 @@ class GameProcessor {
         
         if (uniqueGames.length > 0) {
           SheetsManager.batchWriteGames(uniqueGames);
+          // Append Ratings rows in chronological order for consistency
+          const sortedForRatings = uniqueGames.slice().sort((a, b) => {
+            const ea = TimeUtils.parseLocalDateTimeToEpochSeconds(a.end) || (a.end_time || 0);
+            const eb = TimeUtils.parseLocalDateTimeToEpochSeconds(b.end) || (b.end_time || 0);
+            return ea - eb;
+          });
+          SheetsManager.batchAppendRatingsFromGames(sortedForRatings);
           CallbackQueueManager.addToQueue(uniqueGames);
           gamesProcessed += uniqueGames.length;
         }
@@ -330,6 +340,12 @@ class GameProcessor {
       const uniqueGames = SheetsManager.checkDuplicates(gameBuffer);
       if (uniqueGames.length > 0) {
         SheetsManager.batchWriteGames(uniqueGames);
+        const sortedForRatings = uniqueGames.slice().sort((a, b) => {
+          const ea = TimeUtils.parseLocalDateTimeToEpochSeconds(a.end) || (a.end_time || 0);
+          const eb = TimeUtils.parseLocalDateTimeToEpochSeconds(b.end) || (b.end_time || 0);
+          return ea - eb;
+        });
+        SheetsManager.batchAppendRatingsFromGames(sortedForRatings);
         CallbackQueueManager.addToQueue(uniqueGames);
         gamesProcessed += uniqueGames.length;
       }

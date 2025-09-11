@@ -53,7 +53,7 @@ class DailyStatsProcessor {
    * Calculates ratings for all games
    */
   calculateRatings(games) {
-    // Sort games by end datetime
+    // Sort games by end datetime ascending for correct rating chronology
     games.sort((a, b) => {
       const ea = TimeUtils.parseLocalDateTimeToEpochSeconds(a.end) || 0;
       const eb = TimeUtils.parseLocalDateTimeToEpochSeconds(b.end) || 0;
