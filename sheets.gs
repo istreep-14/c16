@@ -933,6 +933,40 @@ const SheetsManager = {
   },
   
   /**
+   * Builds and returns a Set of existing game URLs from the Games sheet
+   */
+  getExistingUrlsSet: function() {
+    const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Games');
+    const set = new Set();
+    if (!sheet || sheet.getLastRow() <= 1) return set;
+    const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+    const urlCol = headers.indexOf('url') + 1;
+    if (urlCol === 0) return set;
+    const lastRow = sheet.getLastRow();
+    const existingUrlValues = sheet.getRange(2, urlCol, lastRow - 1, 1).getValues();
+    existingUrlValues.forEach(row => { if (row[0]) set.add(row[0]); });
+    return set;
+  },
+
+  /**
+   * Filters incoming games by URL using a provided Set and mutates the set with new URLs
+   */
+  filterNewGamesByUrl: function(games, existingUrlSet) {
+    if (!games || games.length === 0) return [];
+    const set = existingUrlSet || new Set();
+    const unique = [];
+    games.forEach(game => {
+      const u = game && game.url;
+      if (!u) return;
+      if (!set.has(u)) {
+        unique.push(game);
+        set.add(u);
+      }
+    });
+    return unique;
+  },
+
+  /**
    * Checks for duplicate games
    */
   checkDuplicates: function(games) {
