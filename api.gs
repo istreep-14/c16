@@ -232,8 +232,14 @@ class GameProcessor {
         
         if (uniqueGames.length > 0) {
           SheetsManager.batchWriteGames(uniqueGames);
+          // Ensure ratings rows append in chronological order (older first)
+          const sortedForRatings = uniqueGames.slice().sort((a, b) => {
+            const ea = TimeUtils.parseLocalDateTimeToEpochSeconds(a.end) || (a.end_time || 0);
+            const eb = TimeUtils.parseLocalDateTimeToEpochSeconds(b.end) || (b.end_time || 0);
+            return ea - eb;
+          });
+          SheetsManager.batchAppendRatingsFromGames(sortedForRatings);
           CallbackQueueManager.addToQueue(uniqueGames);
-          SheetsManager.updateRatingsSheet();
           gamesProcessed += uniqueGames.length;
         }
       }
@@ -244,8 +250,13 @@ class GameProcessor {
       const uniqueGames = SheetsManager.checkDuplicates(gameBuffer);
       if (uniqueGames.length > 0) {
         SheetsManager.batchWriteGames(uniqueGames);
+        const sortedForRatings = uniqueGames.slice().sort((a, b) => {
+          const ea = TimeUtils.parseLocalDateTimeToEpochSeconds(a.end) || (a.end_time || 0);
+          const eb = TimeUtils.parseLocalDateTimeToEpochSeconds(b.end) || (b.end_time || 0);
+          return ea - eb;
+        });
+        SheetsManager.batchAppendRatingsFromGames(sortedForRatings);
         CallbackQueueManager.addToQueue(uniqueGames);
-        SheetsManager.updateRatingsSheet();
         gamesProcessed += uniqueGames.length;
       }
     }

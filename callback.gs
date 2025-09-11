@@ -78,8 +78,6 @@ class CallbackProcessor {
     // Apply updates to sheet
     if (updates.length > 0) {
       SheetsManager.updateCallbackData(updates);
-      // After callback updates, refresh Ratings sheet
-      SheetsManager.updateRatingsSheet();
     }
     
     // Get remaining stats

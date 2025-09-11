@@ -123,7 +123,7 @@ function updatePlayerStats() {
     
     // Append to Player Stats sheet
     SheetsManager.appendPlayerStats(profile, stats);
-    SheetsManager.updateRatingsSheet();
+    SheetsManager.appendRatingsFromPlayerStats(stats);
     
     // Store latest ratings for each format
     const ratings = {};
