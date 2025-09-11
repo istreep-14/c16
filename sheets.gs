@@ -390,95 +390,72 @@ const SheetsManager = {
    * Updates the Ratings sheet based on Games and Player Stats
    */
   updateRatingsSheet: function() {
+    // Disabled full recomputation for performance. Ratings are appended incrementally.
+    return;
+  },
+
+  /**
+   * Appends Ratings rows for a batch of games. Only the game's format column is filled.
+   */
+  batchAppendRatingsFromGames: function(games) {
+    if (!games || games.length === 0) return 0;
     const ss = SpreadsheetApp.getActiveSpreadsheet();
-    const sheet = ss.getSheetByName('Ratings') || this.createRatingsSheet(ss);
-    const gamesSheet = ss.getSheetByName('Games');
-    const statsSheet = ss.getSheetByName('Player Stats');
-    if (!gamesSheet) return;
-    
-    const gameHeaders = gamesSheet.getRange(1, 1, 1, gamesSheet.getLastColumn()).getValues()[0];
-    const gameData = gamesSheet.getRange(2, 1, Math.max(0, gamesSheet.getLastRow() - 1), gamesSheet.getLastColumn()).getValues();
-    const games = gameData.map(row => {
-      const obj = {};
-      gameHeaders.forEach((h, i) => obj[h] = row[i]);
-      return obj;
-    }).filter(g => g.end);
-    
-    const defaultFormats = ['bullet', 'blitz', 'rapid', 'daily', 'live960', 'daily960'];
-    const observedFormats = Array.from(new Set(games.map(g => g.format).filter(Boolean)));
-    const allFormats = Array.from(new Set(defaultFormats.concat(observedFormats))).sort();
-    
-    let statsEvents = [];
-    if (statsSheet && statsSheet.getLastRow() > 1) {
-      const statsHeaders = statsSheet.getRange(1, 1, 1, statsSheet.getLastColumn()).getValues()[0];
-      const statsData = statsSheet.getRange(2, 1, statsSheet.getLastRow() - 1, statsSheet.getLastColumn()).getValues();
-      statsEvents = statsData.map(row => {
-        const o = {};
-        statsHeaders.forEach((h, i) => o[h] = row[i]);
-        return o;
-      }).map(o => ({
-        type: 'stats',
-        endStr: o.timestamp ? Utilities.formatDate(new Date(o.timestamp), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss') : null,
-        ratings: {
-          bullet: o.chess_bullet_last_rating || '',
-          blitz: o.chess_blitz_last_rating || '',
-          rapid: o.chess_rapid_last_rating || '',
-          daily: o.chess_daily_last_rating || '',
-          live960: '',
-          daily960: o.chess960_daily_last_rating || ''
-        }
-      })).filter(e => e.endStr);
-    }
-    
-    const gameEvents = games.map(g => ({
-      type: 'game',
-      endStr: g.end,
-      format: g.format,
-      myRating: g.my_rating || '',
-      myPregame: g.my_pregame_rating || ''
-    }));
-    
-    const allEvents = statsEvents.concat(gameEvents);
-    allEvents.sort((a, b) => {
-      const ea = TimeUtils.parseLocalDateTimeToEpochSeconds(a.endStr) || 0;
-      const eb = TimeUtils.parseLocalDateTimeToEpochSeconds(b.endStr) || 0;
-      return ea - eb;
+    let sheet = ss.getSheetByName('Ratings');
+    if (!sheet) sheet = this.createRatingsSheet(ss);
+    const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+    const headerMap = {};
+    headers.forEach((h, i) => headerMap[h] = i);
+
+    const rows = games.map(game => {
+      const row = new Array(headers.length).fill('');
+      const endStr = typeof game.end === 'string' && game.end ? game.end : '';
+      if (headerMap.hasOwnProperty('end')) row[headerMap['end']] = endStr;
+      if (headerMap.hasOwnProperty('format')) row[headerMap['format']] = game.format || '';
+      // Only populate the specific format column with the game's rating
+      if (game.format && game.my_rating != null && headerMap.hasOwnProperty(game.format)) {
+        row[headerMap[game.format]] = game.my_rating;
+      }
+      return row;
     });
-    
-    const ratingsByFormat = {};
-    allFormats.forEach(f => ratingsByFormat[f] = '');
-    
-    const timelineRowsAsc = [];
-    allEvents.forEach(ev => {
-      if (ev.type === 'stats') {
-        Object.keys(ev.ratings).forEach(fmt => {
-          if (allFormats.includes(fmt) && ev.ratings[fmt] !== '') {
-            ratingsByFormat[fmt] = ev.ratings[fmt];
-          }
-        });
-        const row = [ev.endStr, 'STATS', '', ''];
-        allFormats.forEach(fmt => row.push(ratingsByFormat[fmt]));
-        timelineRowsAsc.push(row);
-      } else {
-        if (ev.format && allFormats.includes(ev.format)) {
-          ratingsByFormat[ev.format] = ev.myRating || ratingsByFormat[ev.format] || '';
-        }
-        const row = [ev.endStr, ev.format || '', ev.myRating || '', ev.myPregame || ''];
-        allFormats.forEach(fmt => row.push(ratingsByFormat[fmt]));
-        timelineRowsAsc.push(row);
+
+    const startRow = sheet.getLastRow() + 1;
+    sheet.getRange(startRow, 1, rows.length, headers.length).setValues(rows);
+    return rows.length;
+  },
+
+  /**
+   * Appends a Ratings row from player stats. Only known formats are filled.
+   */
+  appendRatingsFromPlayerStats: function(statsData) {
+    if (!statsData) return false;
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    let sheet = ss.getSheetByName('Ratings');
+    if (!sheet) sheet = this.createRatingsSheet(ss);
+    const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+    const headerMap = {};
+    headers.forEach((h, i) => headerMap[h] = i);
+
+    const row = new Array(headers.length).fill('');
+    const nowStr = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
+    if (headerMap.hasOwnProperty('end')) row[headerMap['end']] = nowStr;
+    if (headerMap.hasOwnProperty('format')) row[headerMap['format']] = 'STATS';
+
+    const mappings = [
+      { stat: 'chess_bullet', col: 'bullet' },
+      { stat: 'chess_blitz', col: 'blitz' },
+      { stat: 'chess_rapid', col: 'rapid' },
+      { stat: 'chess_daily', col: 'daily' },
+      { stat: 'chess960_daily', col: 'daily960' }
+    ];
+    mappings.forEach(map => {
+      const s = statsData[map.stat];
+      if (s && s.last && s.last.rating != null && headerMap.hasOwnProperty(map.col)) {
+        row[headerMap[map.col]] = s.last.rating;
       }
     });
-    
-    const headers = ['end', 'format', 'my_rating', 'my_pregame_rating'].concat(allFormats);
-    sheet.clear();
-    sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
-    sheet.getRange(1, 1, 1, headers.length).setFontWeight('bold');
-    sheet.setFrozenRows(1);
-    
-    const rowsDesc = timelineRowsAsc.reverse();
-    if (rowsDesc.length > 0) {
-      sheet.getRange(2, 1, rowsDesc.length, headers.length).setValues(rowsDesc);
-    }
+
+    sheet.appendRow(row);
+    return true;
   },
   
   /**
