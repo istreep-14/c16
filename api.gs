@@ -193,6 +193,7 @@ class GameProcessor {
   processNewGames(lastGameTime, checkpoint = {}) {
     const t = Trace.start('GameProcessor.processNewGames', 'start', { lastGameTime: lastGameTime, checkpoint: checkpoint });
     const archives = ChessAPI.getArchives(this.username);
+    const batchSize = (function(){ try { var v = ConfigManager.get('batchSize'); return (typeof v === 'number' && v > 0) ? v : CONSTANTS.BATCH_SIZE; } catch (e) { return CONSTANTS.BATCH_SIZE; } })();
     let gamesProcessed = 0;
     let totalGames = 0;
     let earliestNewGameEpoch = null;
@@ -238,8 +239,8 @@ class GameProcessor {
       gameBuffer = gameBuffer.concat(processedGames);
       
       // Write in batches
-      if (gameBuffer.length >= CONSTANTS.BATCH_SIZE) {
-        const batch = gameBuffer.splice(0, CONSTANTS.BATCH_SIZE);
+      if (gameBuffer.length >= batchSize) {
+        const batch = gameBuffer.splice(0, batchSize);
         const uniqueGames = SheetsManager.checkDuplicates(batch);
         
         if (uniqueGames.length > 0) {
@@ -305,6 +306,9 @@ class GameProcessor {
   processHistoricalGames(checkpoint = {}) {
     const t = Trace.start('GameProcessor.processHistoricalGames', 'start', { checkpoint: checkpoint });
     const archives = ChessAPI.getArchives(this.username);
+    const batchSize = (function(){ try { var v = ConfigManager.get('batchSize'); return (typeof v === 'number' && v > 0) ? v : CONSTANTS.BATCH_SIZE; } catch (e) { return CONSTANTS.BATCH_SIZE; } })();
+    const queueCallbacks = (function(){ try { var v = ConfigManager.get('queueCallbacksDuringHistorical'); return (v === true || v === 'true' || v === 'on' || v === 1); } catch (e) { return true; } })();
+    const existingUrlSet = SheetsManager.getExistingUrlsSet();
     let gamesProcessed = checkpoint.gamesProcessed || 0;
     let archivesProcessed = checkpoint.archivesProcessed || 0;
     
@@ -337,15 +341,19 @@ class GameProcessor {
       
       const games = ChessAPI.getMonthlyGames(archive);
       
-      // Process all games newest->oldest within the month
+      // Process newest->oldest; pre-filter by URL to avoid processing duplicates
       const monthlyAllNewToOld = games.slice().reverse();
-      const processedGames = monthlyAllNewToOld.map(game => GameDataProcessor.processGame(game, this.username));
-      gameBuffer = gameBuffer.concat(processedGames);
+      const rawNewOnly = SheetsManager.filterNewGamesByUrl(monthlyAllNewToOld, existingUrlSet);
+      if (rawNewOnly.length > 0) {
+        const processedGames = rawNewOnly.map(game => GameDataProcessor.processGame(game, this.username));
+        gameBuffer = gameBuffer.concat(processedGames);
+      }
       
       // Write in batches
-      while (gameBuffer.length >= CONSTANTS.BATCH_SIZE) {
-        const batch = gameBuffer.splice(0, CONSTANTS.BATCH_SIZE);
-        const uniqueGames = SheetsManager.checkDuplicates(batch);
+      while (gameBuffer.length >= batchSize) {
+        const batch = gameBuffer.splice(0, batchSize);
+        // Safeguard against duplicates across this run and existing sheet
+        const uniqueGames = SheetsManager.filterNewGamesByUrl(batch, existingUrlSet);
         
         if (uniqueGames.length > 0) {
           SheetsManager.batchWriteGames(uniqueGames, { sort: false });
@@ -356,7 +364,7 @@ class GameProcessor {
             return ea - eb;
           });
           SheetsManager.batchAppendRatingsFromGames(sortedForRatings, { sort: false });
-          CallbackQueueManager.addToQueue(uniqueGames);
+          if (queueCallbacks) CallbackQueueManager.addToQueue(uniqueGames);
           gamesProcessed += uniqueGames.length;
         }
       }
@@ -366,7 +374,7 @@ class GameProcessor {
     
     // Write remaining games
     if (gameBuffer.length > 0) {
-      const uniqueGames = SheetsManager.checkDuplicates(gameBuffer);
+      const uniqueGames = SheetsManager.filterNewGamesByUrl(gameBuffer, existingUrlSet);
       if (uniqueGames.length > 0) {
         SheetsManager.batchWriteGames(uniqueGames, { sort: false });
         const sortedForRatings = uniqueGames.slice().sort((a, b) => {
@@ -375,7 +383,7 @@ class GameProcessor {
           return ea - eb;
         });
         SheetsManager.batchAppendRatingsFromGames(sortedForRatings, { sort: false });
-        CallbackQueueManager.addToQueue(uniqueGames);
+        if (queueCallbacks) CallbackQueueManager.addToQueue(uniqueGames);
         gamesProcessed += uniqueGames.length;
       }
     }

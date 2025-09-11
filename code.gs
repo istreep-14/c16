@@ -240,6 +240,19 @@ function historicalFetch() {
     if (!username) {
       throw new Error('Username not configured. Run Initial Setup first.');
     }
+    // Apply fast-mode settings for historical import
+    const prevMinimal = ConfigManager.get('minimalMode');
+    const prevStorePGN = ConfigManager.get('storePGN');
+    const prevStoreMoves = ConfigManager.get('storeDetailedMoves');
+    const prevBatchSize = ConfigManager.get('batchSize');
+    const prevQueueCallbacks = ConfigManager.get('queueCallbacksDuringHistorical');
+    try {
+      ConfigManager.set('minimalMode', true);
+      ConfigManager.set('storePGN', false);
+      ConfigManager.set('storeDetailedMoves', false);
+      ConfigManager.set('batchSize', Math.max(CONSTANTS.BATCH_SIZE, 300));
+      ConfigManager.set('queueCallbacksDuringHistorical', false);
+    } catch (e) {}
     const processor = new GameProcessor(username);
     const result = processor.processHistoricalGames(checkpoint);
     CheckpointManager.save('historicalFetch', result.checkpoint);
@@ -251,6 +264,14 @@ function historicalFetch() {
       (result.complete ? 'All games fetched!' : 'Run again to continue.'),
       ui.ButtonSet.OK
     );
+    // Restore previous settings
+    try {
+      ConfigManager.set('minimalMode', prevMinimal);
+      ConfigManager.set('storePGN', prevStorePGN);
+      ConfigManager.set('storeDetailedMoves', prevStoreMoves);
+      ConfigManager.set('batchSize', prevBatchSize);
+      ConfigManager.set('queueCallbacksDuringHistorical', prevQueueCallbacks);
+    } catch (e) {}
   } catch (error) {
     Logger.log('Error in historical fetch: ' + error.toString());
     CheckpointManager.save('historicalFetch', checkpoint);
