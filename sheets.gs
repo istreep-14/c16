@@ -116,16 +116,27 @@ const SheetsManager = {
     if (!sheet) {
       sheet = ss.insertSheet('Daily Stats');
     }
-    
+    // One row per date; include bullet, blitz, rapid sections and a total section
     const headers = [
-      'date', 'format',
-      'games_played', 'wins', 'draws', 'losses',
-      'rating_start', 'rating_end', 'rating_change',
-      'total_time_minutes', 'avg_game_duration',
-      'longest_win_streak', 'longest_loss_streak',
-      'opponents_avg_rating', 'performance_rating'
+      'date',
+      // Bullet section
+      'bullet_games', 'bullet_wins', 'bullet_draws', 'bullet_losses',
+      'bullet_rating_start', 'bullet_rating_end', 'bullet_rating_change',
+      'bullet_total_time_seconds', 'bullet_avg_game_duration_seconds',
+      // Blitz section
+      'blitz_games', 'blitz_wins', 'blitz_draws', 'blitz_losses',
+      'blitz_rating_start', 'blitz_rating_end', 'blitz_rating_change',
+      'blitz_total_time_seconds', 'blitz_avg_game_duration_seconds',
+      // Rapid section
+      'rapid_games', 'rapid_wins', 'rapid_draws', 'rapid_losses',
+      'rapid_rating_start', 'rapid_rating_end', 'rapid_rating_change',
+      'rapid_total_time_seconds', 'rapid_avg_game_duration_seconds',
+      // Totals across bullet+blitz+rapid
+      'total_games', 'total_wins', 'total_draws', 'total_losses',
+      'total_rating_start', 'total_rating_end', 'total_rating_change',
+      'total_time_seconds', 'avg_game_duration_seconds'
     ];
-    
+
     sheet.clear();
     sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
     sheet.getRange(1, 1, 1, headers.length).setFontWeight('bold');
@@ -668,7 +679,7 @@ const SheetsManager = {
   /**
    * Writes daily stats to sheet
    */
-  writeDailyStats: function(dailyStats) {
+  writeDailyStats: function(rows) {
     const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Daily Stats');
     if (!sheet) return;
     
@@ -676,60 +687,9 @@ const SheetsManager = {
     if (sheet.getLastRow() > 1) {
       sheet.deleteRows(2, sheet.getLastRow() - 1);
     }
-    
-    // Convert stats to rows
-    const rows = [];
-    Object.keys(dailyStats).forEach(dateKey => {
-      const dayStats = dailyStats[dateKey];
-      
-      // Add total row for the day
-      if (dayStats.total) {
-        rows.push([
-          dateKey,
-          'TOTAL',
-          dayStats.total.games_played || 0,
-          dayStats.total.wins || 0,
-          dayStats.total.draws || 0,
-          dayStats.total.losses || 0,
-          dayStats.total.rating_start || '',
-          dayStats.total.rating_end || '',
-          dayStats.total.rating_change || 0,
-          dayStats.total.total_time_minutes || 0,
-          dayStats.total.avg_game_duration || 0,
-          dayStats.total.longest_win_streak || 0,
-          dayStats.total.longest_loss_streak || 0,
-          dayStats.total.opponents_avg_rating || 0,
-          dayStats.total.performance_rating || 0
-        ]);
-      }
-      
-      // Add format-specific rows
-      Object.keys(dayStats).forEach(format => {
-        if (format !== 'total') {
-          const stats = dayStats[format];
-          rows.push([
-            dateKey,
-            format,
-            stats.games_played || 0,
-            stats.wins || 0,
-            stats.draws || 0,
-            stats.losses || 0,
-            stats.rating_start || '',
-            stats.rating_end || '',
-            stats.rating_change || 0,
-            stats.total_time_minutes || 0,
-            stats.avg_game_duration || 0,
-            stats.longest_win_streak || 0,
-            stats.longest_loss_streak || 0,
-            stats.opponents_avg_rating || 0,
-            stats.performance_rating || 0
-          ]);
-        }
-      });
-    });
-    
-    // Write rows
-    if (rows.length > 0) {
+
+    // Write rows (already preformatted)
+    if (rows && rows.length > 0) {
       sheet.getRange(2, 1, rows.length, rows[0].length).setValues(rows);
     }
   },
