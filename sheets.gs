@@ -116,8 +116,22 @@ const SheetsManager = {
     if (!sheet) {
       sheet = ss.insertSheet('Daily Stats');
     }
-    // One row per date; include bullet, blitz, rapid sections and a total section
-    const headers = [
+    const headers = this.getDailyStatsHeaders();
+
+    sheet.clear();
+    sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+    sheet.getRange(1, 1, 1, headers.length).setFontWeight('bold');
+    sheet.setFrozenRows(1);
+    
+    return sheet;
+  },
+
+  /**
+   * Returns the canonical Daily Stats headers
+   */
+  getDailyStatsHeaders: function() {
+    // One row per date; include bullet, blitz, rapid sections and totals
+    return [
       'date',
       // Bullet section
       'bullet_games', 'bullet_wins', 'bullet_draws', 'bullet_losses',
@@ -136,13 +150,6 @@ const SheetsManager = {
       'total_rating_start', 'total_rating_end', 'total_rating_change',
       'total_time_seconds', 'avg_game_duration_seconds'
     ];
-
-    sheet.clear();
-    sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
-    sheet.getRange(1, 1, 1, headers.length).setFontWeight('bold');
-    sheet.setFrozenRows(1);
-    
-    return sheet;
   },
   
   /**
@@ -232,6 +239,15 @@ const SheetsManager = {
         ratingsSheet.getRange(1, startCol, 1, missing.length).setValues([missing]);
         ratingsSheet.getRange(1, startCol, 1, missing.length).setFontWeight('bold');
       }
+    }
+
+    // Update Daily Stats sheet headers
+    const dailySheet = ss.getSheetByName('Daily Stats');
+    if (dailySheet) {
+      const desired = this.getDailyStatsHeaders();
+      dailySheet.getRange(1, 1, 1, desired.length).setValues([desired]);
+      dailySheet.getRange(1, 1, 1, desired.length).setFontWeight('bold');
+      dailySheet.setFrozenRows(1);
     }
   },
   
@@ -682,6 +698,8 @@ const SheetsManager = {
   writeDailyStats: function(rows) {
     const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Daily Stats');
     if (!sheet) return;
+    // Ensure headers are up to date without clearing data rows elsewhere
+    this.ensureDailyStatsHeaders();
     
     // Clear existing data (keep headers)
     if (sheet.getLastRow() > 1) {
@@ -692,6 +710,121 @@ const SheetsManager = {
     if (rows && rows.length > 0) {
       sheet.getRange(2, 1, rows.length, rows[0].length).setValues(rows);
     }
+  },
+
+  /**
+   * Ensures the Daily Stats header row matches canonical headers
+   */
+  ensureDailyStatsHeaders: function() {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    let sheet = ss.getSheetByName('Daily Stats');
+    if (!sheet) {
+      sheet = this.createDailyStatsSheet(ss);
+      return;
+    }
+    const headers = this.getDailyStatsHeaders();
+    sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+    sheet.getRange(1, 1, 1, headers.length).setFontWeight('bold');
+    sheet.setFrozenRows(1);
+  },
+
+  /**
+   * Upserts Daily Stats rows by date key (yyyy-MM-dd). Does not clear the sheet.
+   */
+  upsertDailyStatsRows: function(rows, options) {
+    if (!rows || rows.length === 0) return 0;
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    let sheet = ss.getSheetByName('Daily Stats');
+    if (!sheet) sheet = this.createDailyStatsSheet(ss);
+    this.ensureDailyStatsHeaders();
+
+    // Current headers and maps
+    const currentHeaders = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+    const hCur = {};
+    currentHeaders.forEach((name, idx) => hCur[name] = idx);
+    const desiredHeaders = this.getDailyStatsHeaders();
+    const hDes = {};
+    desiredHeaders.forEach((name, idx) => hDes[name] = idx);
+
+    const dateColIdx = hCur.hasOwnProperty('date') ? hCur['date'] : -1;
+    if (dateColIdx < 0) throw new Error('Daily Stats sheet missing date column');
+
+    // Build date -> row number map and cache existing rows
+    const lastRow = sheet.getLastRow();
+    const numCols = currentHeaders.length;
+    const existingValues = lastRow > 1 ? sheet.getRange(2, 1, lastRow - 1, numCols).getValues() : [];
+    const tz = Session.getScriptTimeZone();
+    const dateToRow = {};
+    existingValues.forEach((row, i) => {
+      const cell = row[dateColIdx];
+      let key = null;
+      if (cell instanceof Date) {
+        key = Utilities.formatDate(cell, tz, 'yyyy-MM-dd');
+      } else if (typeof cell === 'string') {
+        const s = cell.trim();
+        if (/^\d{4}-\d{2}-\d{2}$/.test(s)) key = s; else {
+          const ep = TimeUtils.parseLocalDateTimeToEpochSeconds(s);
+          if (ep) key = Utilities.formatDate(TimeUtils.epochToLocal(ep), tz, 'yyyy-MM-dd');
+        }
+      }
+      if (key) dateToRow[key] = i + 2; // account for header offset
+    });
+
+    // Partition into updates and appends
+    const updates = []; // { row: number, values: any[] }
+    const appends = [];
+    rows.forEach(srcRow => {
+      const dateKey = srcRow[hDes['date']];
+      if (!dateKey) return;
+      const existingRowNum = dateToRow[dateKey];
+      if (existingRowNum) {
+        // Merge over existing row values
+        const existing = existingValues[existingRowNum - 2] ? existingValues[existingRowNum - 2].slice() : new Array(numCols).fill('');
+        // Overlay by header name alignment
+        desiredHeaders.forEach(name => {
+          const srcIdx = hDes[name];
+          const dstIdx = hCur.hasOwnProperty(name) ? hCur[name] : -1;
+          if (dstIdx >= 0 && srcIdx >= 0) {
+            existing[dstIdx] = srcRow[srcIdx];
+          }
+        });
+        updates.push({ row: existingRowNum, values: existing });
+      } else {
+        // Build a new row aligned to current headers
+        const out = new Array(numCols).fill('');
+        desiredHeaders.forEach(name => {
+          const srcIdx = hDes[name];
+          const dstIdx = hCur.hasOwnProperty(name) ? hCur[name] : -1;
+          if (dstIdx >= 0 && srcIdx >= 0) {
+            out[dstIdx] = srcRow[srcIdx];
+          }
+        });
+        appends.push(out);
+      }
+    });
+
+    // Apply updates (small number of rows expected)
+    updates.sort((a, b) => a.row - b.row);
+    updates.forEach(u => {
+      sheet.getRange(u.row, 1, 1, numCols).setValues([u.values]);
+    });
+
+    // Append new rows
+    if (appends.length > 0) {
+      const start = sheet.getLastRow() + 1;
+      sheet.getRange(start, 1, appends.length, numCols).setValues(appends);
+    }
+
+    // Optional sort by date desc
+    const shouldSort = !(options && options.sort === false);
+    if (shouldSort) this.sortDailyStatsByDateDesc();
+
+    return updates.length + appends.length;
+  },
+
+  /** Sort Daily Stats by 'date' descending */
+  sortDailyStatsByDateDesc: function() {
+    this.sortSheetByHeaderDesc('Daily Stats', 'date');
   },
   
   /**
