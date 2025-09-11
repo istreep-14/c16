@@ -16,98 +16,53 @@ class DailyStatsProcessor {
   /**
    * Updates daily statistics
    */
-  updateDailyStats() {
+  updateDailyStats(startEpochSeconds) {
     const t = Trace.start('DailyStatsProcessor.updateDailyStats', 'start');
-    SheetsManager.log('INFO', 'Daily Stats', 'Starting daily stats update');
-    
-    // Ensure today's ratings row is present/updated in Dates
-    try { DatesManager.updateTodayOnly(); } catch (e) { try { SheetsManager.log('WARNING', 'Daily Stats', 'Failed to update Dates today', e.toString()); } catch (er) {} }
-
-    // If Daily Stats sheet is empty, do a full rebuild once
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     let dailySheet = ss.getSheetByName('Daily Stats');
     if (!dailySheet) dailySheet = SheetsManager.createDailyStatsSheet(ss);
-    const dailyHasData = dailySheet && dailySheet.getLastRow() > 1;
+    const hasData = dailySheet && dailySheet.getLastRow() > 1;
 
-    // Checkpoint for incremental updates
-    const checkpoint = CheckpointManager.load('dailyStats') || {};
-    const lastGameEpoch = checkpoint.lastGameEpoch || null;
-
-    // Build dates data (for order and prev-day mapping)
-    const datesData = this._getDatesData();
-    const allDateKeysDesc = datesData.dateKeysDesc;
-
-    if (!dailyHasData) {
-      // Full rebuild path
+    // Full rebuild when sheet empty or no start epoch provided
+    if (!hasData && (startEpochSeconds == null)) {
       const allGames = SheetsManager.getGamesForDailyStats();
       const allRows = this.buildDailyRows(allGames);
       SheetsManager.writeDailyStats(allRows);
-      // Update checkpoint
-      checkpoint.lastGameEpoch = SheetsManager.getLastGameTimestamp() || null;
-      checkpoint.lastRunAt = new Date().toISOString();
-      CheckpointManager.save('dailyStats', checkpoint);
-      const resultFull = { daysProcessed: allRows.length, totalGames: allGames.length };
-      t.end({ daysProcessed: resultFull.daysProcessed, totalGames: resultFull.totalGames, mode: 'full' });
-      return resultFull;
+      t.end({ daysProcessed: allRows.length, mode: 'full' });
+      return { daysProcessed: allRows.length, mode: 'full' };
     }
 
-    // Incremental path
-    // Determine affected dates: new game dates since last run + last few days for safety
-    const safetyWindowDays = 3;
-    const fallbackKeys = allDateKeysDesc.slice(0, safetyWindowDays);
-    let newGames = [];
-    if (lastGameEpoch && typeof lastGameEpoch === 'number') {
-      newGames = SheetsManager.getGamesForDailyStats(lastGameEpoch);
-    } else {
-      // No checkpoint yet: treat as no new games; fallbackKeys will ensure today/yesterday update
-      newGames = [];
-    }
-    const affectedSet = {};
-    // Add fallback recent days
-    fallbackKeys.forEach(k => { if (k) affectedSet[k] = true; });
-    // Add dates from new games
-    newGames.forEach(g => {
-      const y = g.year, m = g.month, d = g.day;
-      const dk = TimeUtils.getDateKey(y, m, d);
-      if (dk) affectedSet[dk] = true;
-    });
-    const datesToUpdate = Object.keys(affectedSet);
-    if (datesToUpdate.length === 0) {
-      // Nothing to do - still update checkpoint
-      checkpoint.lastGameEpoch = SheetsManager.getLastGameTimestamp() || lastGameEpoch;
-      checkpoint.lastRunAt = new Date().toISOString();
-      CheckpointManager.save('dailyStats', checkpoint);
-      const resultNoop = { daysProcessed: 0, totalGames: 0 };
-      t.end({ daysProcessed: 0, totalGames: 0, mode: 'noop' });
-      return resultNoop;
-    }
+    // Incremental: from start epoch to today
+    const startEpoch = (typeof startEpochSeconds === 'number') ? startEpochSeconds : 0;
+    const tz = Session.getScriptTimeZone();
+    const startKey = startEpoch ? Utilities.formatDate(TimeUtils.epochToLocal(startEpoch), tz, 'yyyy-MM-dd') : null;
+    const todayKey = Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd');
 
-    // Prepare games filtered to affected dates only
     const allGames = SheetsManager.getGamesForDailyStats();
-    const datesToUpdateSet = {};
-    datesToUpdate.forEach(k => datesToUpdateSet[k] = true);
-    const gamesForAffected = allGames.filter(g => {
+    const affectedKeysSet = {};
+    allGames.forEach(g => {
+      const endStr = g.end;
+      const ep = TimeUtils.parseLocalDateTimeToEpochSeconds(endStr);
+      if (!ep || ep < startEpoch) return;
       const dk = TimeUtils.getDateKey(g.year, g.month, g.day);
-      return !!datesToUpdateSet[dk];
+      if (dk) affectedKeysSet[dk] = true;
     });
-
-    // Build rows for only affected dates
-    const rows = this.buildDailyRows(gamesForAffected, { onlyDates: datesToUpdate });
-
-    // Upsert to sheet
+    // Always include from startKey to todayKey even if no games (ensures continuity)
+    const datesData = this._getDatesData();
+    const keysDesc = datesData.dateKeysDesc;
+    keysDesc.forEach(k => {
+      if (!startKey) return;
+      if (k <= todayKey && k >= startKey) affectedKeysSet[k] = true;
+    });
+    const affectedKeys = Object.keys(affectedKeysSet);
+    if (affectedKeys.length === 0) {
+      t.end({ daysProcessed: 0, mode: 'noop' });
+      return { daysProcessed: 0, mode: 'noop' };
+    }
+    const rows = this.buildDailyRows(allGames, { onlyDates: affectedKeys });
     SheetsManager.upsertDailyStatsRows(rows, { sort: true });
-
-    // Update checkpoint
-    checkpoint.lastGameEpoch = SheetsManager.getLastGameTimestamp() || lastGameEpoch;
-    checkpoint.lastRunAt = new Date().toISOString();
-    CheckpointManager.save('dailyStats', checkpoint);
-
-    const result = {
-      daysProcessed: rows.length,
-      totalGames: newGames.length
-    };
-    t.end({ daysProcessed: result.daysProcessed, totalGames: result.totalGames, mode: 'incremental' });
-    return result;
+    t.end({ daysProcessed: rows.length, mode: 'incremental' });
+    return { daysProcessed: rows.length, mode: 'incremental' };
   }
   
   /**
@@ -311,138 +266,7 @@ class DailyStatsProcessor {
     return { dateKeysDesc: dateKeys, ratingsByDate: ratings };
   }
   
-  /**
-   * Groups games by day and format
-   */
-  groupGamesByDay(games) {
-    const dailyStats = {};
-    
-    games.forEach(game => {
-      const dateKey = TimeUtils.getDateKey(game.year, game.month, game.day);
-      
-      if (!dailyStats[dateKey]) {
-        dailyStats[dateKey] = {
-          total: {
-            games: [],
-            games_played: 0,
-            wins: 0,
-            draws: 0,
-            losses: 0,
-            total_time_minutes: 0
-          }
-        };
-      }
-      
-      // Add to total
-      dailyStats[dateKey].total.games.push(game);
-      
-      // Add to format-specific
-      const format = game.format || 'unknown';
-      if (!dailyStats[dateKey][format]) {
-        dailyStats[dateKey][format] = {
-          games: [],
-          games_played: 0,
-          wins: 0,
-          draws: 0,
-          losses: 0,
-          total_time_minutes: 0
-        };
-      }
-      
-      dailyStats[dateKey][format].games.push(game);
-    });
-    
-    return dailyStats;
-  }
   
-  /**
-   * Calculates statistics for a day
-   */
-  calculateDayStats(dayData, dateKey) {
-    Object.keys(dayData).forEach(format => {
-      const stats = dayData[format];
-      const games = stats.games;
-      
-      if (!games || games.length === 0) return;
-      
-      // Count games and results
-      stats.games_played = games.length;
-      
-      games.forEach(game => {
-        // Count results (use numeric my_outcome)
-        if (game.my_outcome === 1) {
-          stats.wins++;
-        } else if (game.my_outcome === 0) {
-          stats.losses++;
-        } else if (game.my_outcome === 0.5) {
-          stats.draws++;
-        }
-        
-        // Sum time
-        if (game.game_duration_seconds) {
-          stats.total_time_minutes += game.game_duration_seconds / 60;
-        }
-      });
-      
-      // Calculate averages
-      stats.avg_game_duration = stats.total_time_minutes / stats.games_played;
-      
-      // Calculate opponent average rating
-      const opponentRatings = games
-        .filter(g => g.opponent_rating)
-        .map(g => g.opponent_rating);
-      
-      if (opponentRatings.length > 0) {
-        stats.opponents_avg_rating = Math.round(
-          opponentRatings.reduce((a, b) => a + b) / opponentRatings.length
-        );
-      }
-      
-      // Calculate performance rating
-      stats.performance_rating = RatingUtils.calculatePerformanceRating(games);
-      
-      // Calculate streaks
-      const results = games.map(g => g.my_outcome).filter(r => r !== null);
-      const streaks = DataUtils.calculateStreaks(results);
-      stats.longest_win_streak = streaks.longestWin;
-      stats.longest_loss_streak = streaks.longestLoss;
-      
-      // Get rating for this day
-      if (format !== 'total') {
-        // Find first and last game of the day
-        const sortedGames = games.sort((a, b) => {
-          const ea = TimeUtils.parseLocalDateTimeToEpochSeconds(a.end) || 0;
-          const eb = TimeUtils.parseLocalDateTimeToEpochSeconds(b.end) || 0;
-          return ea - eb;
-        });
-        const firstGame = sortedGames[0];
-        const lastGame = sortedGames[sortedGames.length - 1];
-        
-        // Rating at start of day
-        if (firstGame.my_pregame_rating) {
-          stats.rating_start = firstGame.my_pregame_rating;
-        } else if (firstGame.my_rating) {
-          stats.rating_start = firstGame.my_rating;
-        }
-        
-        // Rating at end of day (use resolver; fallback to last game's rating)
-        const resolved = RatingManager.getRatingForDate(format, dateKey);
-        if (resolved != null) {
-          stats.rating_end = resolved;
-        } else if (lastGame.my_rating) {
-          stats.rating_end = lastGame.my_rating;
-        }
-        
-        // Calculate change
-        if (stats.rating_start && stats.rating_end) {
-          stats.rating_change = stats.rating_end - stats.rating_start;
-        }
-      }
-      
-      // Clean up games array before writing
-      delete stats.games;
-    });
-  }
 }
 
 /**

@@ -195,6 +195,7 @@ class GameProcessor {
     const archives = ChessAPI.getArchives(this.username);
     let gamesProcessed = 0;
     let totalGames = 0;
+    let earliestNewGameEpoch = null;
     
     // Start from checkpoint or beginning
     let startIndex = checkpoint.archiveIndex || 0;
@@ -253,6 +254,11 @@ class GameProcessor {
           SheetsManager.batchAppendRatingsFromGames(sortedForRatings, { sort: false });
           CallbackQueueManager.addToQueue(uniqueGames);
           gamesProcessed += uniqueGames.length;
+          // Track earliest epoch among this written batch
+          uniqueGames.forEach(g => {
+            const ep = TimeUtils.parseLocalDateTimeToEpochSeconds(g.end) || (g.end_time || 0);
+            if (ep && (earliestNewGameEpoch == null || ep < earliestNewGameEpoch)) earliestNewGameEpoch = ep;
+          });
         }
       }
     }
@@ -270,6 +276,10 @@ class GameProcessor {
         SheetsManager.batchAppendRatingsFromGames(sortedForRatings, { sort: false });
         CallbackQueueManager.addToQueue(uniqueGames);
         gamesProcessed += uniqueGames.length;
+        uniqueGames.forEach(g => {
+          const ep = TimeUtils.parseLocalDateTimeToEpochSeconds(g.end) || (g.end_time || 0);
+          if (ep && (earliestNewGameEpoch == null || ep < earliestNewGameEpoch)) earliestNewGameEpoch = ep;
+        });
       }
     }
     
@@ -282,7 +292,8 @@ class GameProcessor {
     const result = {
       gamesProcessed,
       totalGames: SheetsManager.getLastGameTimestamp() ? 'Updated' : totalGames,
-      checkpoint: {}
+      checkpoint: {},
+      earliestNewGameEpoch: earliestNewGameEpoch
     };
     t.end({ gamesProcessed: gamesProcessed });
     return result;
