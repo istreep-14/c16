@@ -23,20 +23,90 @@ class DailyStatsProcessor {
     // Ensure today's ratings row is present/updated in Dates
     try { DatesManager.updateTodayOnly(); } catch (e) { try { SheetsManager.log('WARNING', 'Daily Stats', 'Failed to update Dates today', e.toString()); } catch (er) {} }
 
-    // Get all games
-    const games = SheetsManager.getGamesForDailyStats();
+    // If Daily Stats sheet is empty, do a full rebuild once
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    let dailySheet = ss.getSheetByName('Daily Stats');
+    if (!dailySheet) dailySheet = SheetsManager.createDailyStatsSheet(ss);
+    const dailyHasData = dailySheet && dailySheet.getLastRow() > 1;
 
-    // Build preformatted rows (one per date)
-    const rows = this.buildDailyRows(games);
+    // Checkpoint for incremental updates
+    const checkpoint = CheckpointManager.load('dailyStats') || {};
+    const lastGameEpoch = checkpoint.lastGameEpoch || null;
 
-    // Write to sheet
-    SheetsManager.writeDailyStats(rows);
+    // Build dates data (for order and prev-day mapping)
+    const datesData = this._getDatesData();
+    const allDateKeysDesc = datesData.dateKeysDesc;
+
+    if (!dailyHasData) {
+      // Full rebuild path
+      const allGames = SheetsManager.getGamesForDailyStats();
+      const allRows = this.buildDailyRows(allGames);
+      SheetsManager.writeDailyStats(allRows);
+      // Update checkpoint
+      checkpoint.lastGameEpoch = SheetsManager.getLastGameTimestamp() || null;
+      checkpoint.lastRunAt = new Date().toISOString();
+      CheckpointManager.save('dailyStats', checkpoint);
+      const resultFull = { daysProcessed: allRows.length, totalGames: allGames.length };
+      t.end({ daysProcessed: resultFull.daysProcessed, totalGames: resultFull.totalGames, mode: 'full' });
+      return resultFull;
+    }
+
+    // Incremental path
+    // Determine affected dates: new game dates since last run + last few days for safety
+    const safetyWindowDays = 3;
+    const fallbackKeys = allDateKeysDesc.slice(0, safetyWindowDays);
+    let newGames = [];
+    if (lastGameEpoch && typeof lastGameEpoch === 'number') {
+      newGames = SheetsManager.getGamesForDailyStats(lastGameEpoch);
+    } else {
+      // No checkpoint yet: treat as no new games; fallbackKeys will ensure today/yesterday update
+      newGames = [];
+    }
+    const affectedSet = {};
+    // Add fallback recent days
+    fallbackKeys.forEach(k => { if (k) affectedSet[k] = true; });
+    // Add dates from new games
+    newGames.forEach(g => {
+      const y = g.year, m = g.month, d = g.day;
+      const dk = TimeUtils.getDateKey(y, m, d);
+      if (dk) affectedSet[dk] = true;
+    });
+    const datesToUpdate = Object.keys(affectedSet);
+    if (datesToUpdate.length === 0) {
+      // Nothing to do - still update checkpoint
+      checkpoint.lastGameEpoch = SheetsManager.getLastGameTimestamp() || lastGameEpoch;
+      checkpoint.lastRunAt = new Date().toISOString();
+      CheckpointManager.save('dailyStats', checkpoint);
+      const resultNoop = { daysProcessed: 0, totalGames: 0 };
+      t.end({ daysProcessed: 0, totalGames: 0, mode: 'noop' });
+      return resultNoop;
+    }
+
+    // Prepare games filtered to affected dates only
+    const allGames = SheetsManager.getGamesForDailyStats();
+    const datesToUpdateSet = {};
+    datesToUpdate.forEach(k => datesToUpdateSet[k] = true);
+    const gamesForAffected = allGames.filter(g => {
+      const dk = TimeUtils.getDateKey(g.year, g.month, g.day);
+      return !!datesToUpdateSet[dk];
+    });
+
+    // Build rows for only affected dates
+    const rows = this.buildDailyRows(gamesForAffected, { onlyDates: datesToUpdate });
+
+    // Upsert to sheet
+    SheetsManager.upsertDailyStatsRows(rows, { sort: true });
+
+    // Update checkpoint
+    checkpoint.lastGameEpoch = SheetsManager.getLastGameTimestamp() || lastGameEpoch;
+    checkpoint.lastRunAt = new Date().toISOString();
+    CheckpointManager.save('dailyStats', checkpoint);
 
     const result = {
       daysProcessed: rows.length,
-      totalGames: games.length
+      totalGames: newGames.length
     };
-    t.end({ daysProcessed: result.daysProcessed, totalGames: result.totalGames });
+    t.end({ daysProcessed: result.daysProcessed, totalGames: result.totalGames, mode: 'incremental' });
     return result;
   }
   
@@ -90,7 +160,7 @@ class DailyStatsProcessor {
   /**
    * Builds preformatted rows for Daily Stats sheet from games and Dates ratings
    */
-  buildDailyRows(games) {
+  buildDailyRows(games, options) {
     const t = Trace.start('DailyStatsProcessor.buildDailyRows', 'start');
     const data = this._getDatesData();
     const dateKeys = data.dateKeysDesc; // today first
@@ -122,8 +192,10 @@ class DailyStatsProcessor {
 
     // Build rows matching Daily Stats headers in SheetsManager.createDailyStatsSheet
     const rows = [];
+    const onlyDatesSet = (options && options.onlyDates && options.onlyDates.length) ? (function(arr){ const m={}; arr.forEach(k=>{ if(k) m[k]=true; }); return m; })(options.onlyDates) : null;
     for (let i = 0; i < dateKeys.length; i++) {
       const dateKey = dateKeys[i];
+      if (onlyDatesSet && !onlyDatesSet[dateKey]) continue;
       const prevKey = i + 1 < dateKeys.length ? dateKeys[i + 1] : null;
       const rToday = ratings[dateKey] || { bullet: null, blitz: null, rapid: null };
       const rPrev = prevKey ? (ratings[prevKey] || { bullet: null, blitz: null, rapid: null }) : { bullet: null, blitz: null, rapid: null };
