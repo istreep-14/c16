@@ -181,8 +181,9 @@ class DailyStatsProcessor {
       const fmt = normalizeFormat(g.format);
       if (formats.indexOf(fmt) === -1) return;
       if (!perDay[dateKey]) perDay[dateKey] = {};
-      if (!perDay[dateKey][fmt]) perDay[dateKey][fmt] = { games: 0, wins: 0, draws: 0, losses: 0, timeSeconds: 0 };
+      if (!perDay[dateKey][fmt]) perDay[dateKey][fmt] = { games: 0, wins: 0, draws: 0, losses: 0, timeSeconds: 0, gameList: [] };
       const s = perDay[dateKey][fmt];
+      s.gameList.push(g);
       s.games += 1;
       const outcome = g.my_outcome;
       if (outcome === 1) s.wins += 1; else if (outcome === 0.5) s.draws += 1; else if (outcome === 0) s.losses += 1;
@@ -201,9 +202,9 @@ class DailyStatsProcessor {
       const rPrev = prevKey ? (ratings[prevKey] || { bullet: null, blitz: null, rapid: null }) : { bullet: null, blitz: null, rapid: null };
 
       // Pull per-format stats with zeros default
-      const b = (perDay[dateKey] && perDay[dateKey].bullet) ? perDay[dateKey].bullet : { games: 0, wins: 0, draws: 0, losses: 0, timeSeconds: 0 };
-      const z = (perDay[dateKey] && perDay[dateKey].blitz) ? perDay[dateKey].blitz : { games: 0, wins: 0, draws: 0, losses: 0, timeSeconds: 0 };
-      const r = (perDay[dateKey] && perDay[dateKey].rapid) ? perDay[dateKey].rapid : { games: 0, wins: 0, draws: 0, losses: 0, timeSeconds: 0 };
+      const b = (perDay[dateKey] && perDay[dateKey].bullet) ? perDay[dateKey].bullet : { games: 0, wins: 0, draws: 0, losses: 0, timeSeconds: 0, gameList: [] };
+      const z = (perDay[dateKey] && perDay[dateKey].blitz) ? perDay[dateKey].blitz : { games: 0, wins: 0, draws: 0, losses: 0, timeSeconds: 0, gameList: [] };
+      const r = (perDay[dateKey] && perDay[dateKey].rapid) ? perDay[dateKey].rapid : { games: 0, wins: 0, draws: 0, losses: 0, timeSeconds: 0, gameList: [] };
 
       // Ratings from Dates sheet
       const bStart = (typeof rPrev.bullet === 'number') ? rPrev.bullet : null;
@@ -228,24 +229,31 @@ class DailyStatsProcessor {
       const totalChange = bChange + zChange + rChange;
       const avgDuration = totalGames > 0 ? (totalTime / totalGames) : 0;
 
+      // Performance ratings per-format and total (empty if no games)
+      const bPerf = b.games > 0 ? RatingUtils.calculatePerformanceRating(b.gameList) : '';
+      const zPerf = z.games > 0 ? RatingUtils.calculatePerformanceRating(z.gameList) : '';
+      const rPerf = r.games > 0 ? RatingUtils.calculatePerformanceRating(r.gameList) : '';
+      const combinedGames = ([]).concat(b.gameList || [], z.gameList || [], r.gameList || []);
+      const totalPerf = combinedGames.length > 0 ? RatingUtils.calculatePerformanceRating(combinedGames) : '';
+
       rows.push([
         dateKey,
         // bullet
         b.games, b.wins, b.draws, b.losses,
         (bStart != null ? bStart : ''), (bEnd != null ? bEnd : ''), bChange,
-        b.timeSeconds, (b.games > 0 ? (b.timeSeconds / b.games) : 0),
+        b.timeSeconds, (b.games > 0 ? (b.timeSeconds / b.games) : 0), bPerf,
         // blitz
         z.games, z.wins, z.draws, z.losses,
         (zStart != null ? zStart : ''), (zEnd != null ? zEnd : ''), zChange,
-        z.timeSeconds, (z.games > 0 ? (z.timeSeconds / z.games) : 0),
+        z.timeSeconds, (z.games > 0 ? (z.timeSeconds / z.games) : 0), zPerf,
         // rapid
         r.games, r.wins, r.draws, r.losses,
         (rStart != null ? rStart : ''), (rEnd != null ? rEnd : ''), rChange,
-        r.timeSeconds, (r.games > 0 ? (r.timeSeconds / r.games) : 0),
+        r.timeSeconds, (r.games > 0 ? (r.timeSeconds / r.games) : 0), rPerf,
         // totals
         totalGames, totalWins, totalDraws, totalLosses,
         totalStart, totalEnd, totalChange,
-        totalTime, avgDuration
+        totalTime, avgDuration, totalPerf
       ]);
     }
     t.end({ rows: rows.length });
@@ -512,7 +520,7 @@ const RatingManager = {
   _getRatingsEventsByFormat: function() {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     const sheet = ss.getSheetByName('Ratings');
-    const formats = ['bullet', 'blitz', 'rapid', 'daily', 'live960', 'daily960'];
+    const formats = ['bullet', 'blitz', 'rapid', 'daily', 'live960', 'daily960', 'bughouse', 'crazyhouse', 'threecheck', 'koth', 'antichess', 'atomic', 'horde', 'racingkings'];
     const eventsByFormat = {};
     formats.forEach(f => eventsByFormat[f] = []);
     if (!sheet || sheet.getLastRow() <= 1) return eventsByFormat;
