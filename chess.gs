@@ -13,19 +13,28 @@ const GameDataProcessor = {
   processGame: function(rawGame, username) {
     const game = Object.assign({}, rawGame);
     
-    // Parse PGN data
-    const pgnData = this.parsePGN(game.pgn);
+    // Resolve minimal/toggle flags
+    var minimal = false; try { var mv = ConfigManager.get('minimalMode'); minimal = (mv === true || mv === 'true' || mv === 'on' || mv === 1); } catch (e) {}
+    var storePGN = true; try { var sp = ConfigManager.get('storePGN'); if (sp != null) storePGN = (sp === true || sp === 'true' || sp === 'on' || sp === 1); } catch (e) {}
+    var storeDetailedMoves = true; try { var sd = ConfigManager.get('storeDetailedMoves'); if (sd != null) storeDetailedMoves = (sd === true || sd === 'true' || sd === 'on' || sd === 1); } catch (e) {}
+    if (minimal) { storePGN = false; storeDetailedMoves = false; }
     
-    // Add parsed PGN headers
-    Object.assign(game, pgnData.headers);
+    // Parse PGN data (optional)
+    var pgnData = { headers: {}, moves: '' };
+    if (storePGN || storeDetailedMoves) {
+      pgnData = this.parsePGN(game.pgn);
+      Object.assign(game, pgnData.headers);
+    }
     
     // Parse time control first to get base time and increment
     const timeControl = this.parseTimeControl(game.time_control);
     Object.assign(game, timeControl);
     
-    // Parse moves and clocks with time control info
-    const moveData = this.parseMoves(pgnData.moves, timeControl.base_time_seconds, timeControl.increment_seconds);
-    Object.assign(game, moveData);
+    // Parse moves and clocks with time control info (optional heavy)
+    if (storeDetailedMoves && pgnData && pgnData.moves) {
+      const moveData = this.parseMoves(pgnData.moves, timeControl.base_time_seconds, timeControl.increment_seconds);
+      Object.assign(game, moveData);
+    }
     
     // Compute time anchors (start/end) and components using PGN times and end_time
     const timeAnchors = this.computeTimeAnchors(game);
@@ -41,6 +50,19 @@ const GameDataProcessor = {
     // Add processing metadata
     game.processed_timestamp = new Date().toISOString();
     game.processing_version = '1.0';
+    
+    // Drop heavy fields under minimal mode
+    if (minimal) {
+      delete game.pgn;
+      delete game.moves_san;
+      delete game.moves_numbered;
+      delete game.clocks;
+      delete game.clock_seconds;
+      delete game.time_per_move;
+      delete game.pgn_opening;
+      delete game.eco_url;
+      delete game.pgn_current_position;
+    }
     
     return game;
   },

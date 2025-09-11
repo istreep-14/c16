@@ -8,10 +8,12 @@ const DatesManager = {
    * Returns the list of formats to track in Dates sheet
    */
   getAllFormats: function() {
+    var isMinimal = false; try { var v = ConfigManager.get('minimalMode'); isMinimal = (v === true || v === 'true' || v === 'on' || v === 1); } catch (e) {}
+    if (isMinimal) {
+      return ['bullet', 'blitz', 'rapid'];
+    }
     const baseFormats = ['bullet', 'blitz', 'rapid', 'daily', 'live960', 'daily960'];
-    // Include known variants except raw 'chess' and 'chess960'
     const variants = (CONSTANTS && CONSTANTS.VARIANTS) ? CONSTANTS.VARIANTS.filter(v => v !== 'chess' && v !== 'chess960') : [];
-    // Merge unique
     const set = {};
     baseFormats.concat(variants).forEach(f => set[f] = true);
     return Object.keys(set);
