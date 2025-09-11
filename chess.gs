@@ -426,6 +426,7 @@ const GameDataProcessor = {
       my_username: username,
       my_rating: null,
       my_result: null,
+      my_outcome: null,
       opponent_username: null,
       opponent_rating: null,
       opponent_result: null
@@ -445,7 +446,7 @@ const GameDataProcessor = {
       perspective.opponent_result = game.white ? game.white.result : null;
     }
     
-    // Convert results to numeric
+    // Map raw results to numeric outcomes
     const resultMap = {
       'win': 1,
       'checkmated': 0,
@@ -461,7 +462,7 @@ const GameDataProcessor = {
     };
     
     if (perspective.my_result && resultMap.hasOwnProperty(perspective.my_result)) {
-      perspective.my_result = resultMap[perspective.my_result];
+      perspective.my_outcome = resultMap[perspective.my_result];
     }
     
     // Flatten white/black data
@@ -469,14 +470,14 @@ const GameDataProcessor = {
       perspective.white_username = game.white.username;
       perspective.white_rating = game.white.rating;
       perspective.white_result = game.white.result;
-      perspective.white_uuid = game.white.uuid;
+      // white_uuid removed from sheet; keep only if needed elsewhere
     }
     
     if (game.black) {
       perspective.black_username = game.black.username;
       perspective.black_rating = game.black.rating;
       perspective.black_result = game.black.result;
-      perspective.black_uuid = game.black.uuid;
+      // black_uuid removed from sheet; keep only if needed elsewhere
     }
     
     return perspective;
