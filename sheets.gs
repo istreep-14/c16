@@ -136,19 +136,19 @@ const SheetsManager = {
       // Bullet section
       'bullet_games', 'bullet_wins', 'bullet_draws', 'bullet_losses',
       'bullet_rating_start', 'bullet_rating_end', 'bullet_rating_change',
-      'bullet_total_time_seconds', 'bullet_avg_game_duration_seconds',
+      'bullet_total_time_seconds', 'bullet_avg_game_duration_seconds', 'bullet_performance_rating',
       // Blitz section
       'blitz_games', 'blitz_wins', 'blitz_draws', 'blitz_losses',
       'blitz_rating_start', 'blitz_rating_end', 'blitz_rating_change',
-      'blitz_total_time_seconds', 'blitz_avg_game_duration_seconds',
+      'blitz_total_time_seconds', 'blitz_avg_game_duration_seconds', 'blitz_performance_rating',
       // Rapid section
       'rapid_games', 'rapid_wins', 'rapid_draws', 'rapid_losses',
       'rapid_rating_start', 'rapid_rating_end', 'rapid_rating_change',
-      'rapid_total_time_seconds', 'rapid_avg_game_duration_seconds',
+      'rapid_total_time_seconds', 'rapid_avg_game_duration_seconds', 'rapid_performance_rating',
       // Totals across bullet+blitz+rapid
       'total_games', 'total_wins', 'total_draws', 'total_losses',
       'total_rating_start', 'total_rating_end', 'total_rating_change',
-      'total_time_seconds', 'avg_game_duration_seconds'
+      'total_time_seconds', 'avg_game_duration_seconds', 'total_performance_rating'
     ];
   },
   
@@ -231,7 +231,7 @@ const SheetsManager = {
     // Update Ratings sheet headers
     const ratingsSheet = ss.getSheetByName('Ratings');
     if (ratingsSheet) {
-      const desired = ['end', 'format', 'url', 'my_rating', 'my_pregame_rating', 'bullet', 'blitz', 'rapid', 'daily', 'live960', 'daily960'];
+      const desired = ['end', 'format', 'url', 'my_rating', 'my_pregame_rating', 'bullet', 'blitz', 'rapid', 'daily', 'live960', 'daily960', 'bughouse', 'crazyhouse', 'threecheck', 'koth', 'antichess', 'atomic', 'horde', 'racingkings'];
       const current = ratingsSheet.getRange(1, 1, 1, ratingsSheet.getLastColumn()).getValues()[0];
       const missing = desired.filter(h => !current.includes(h));
       if (missing.length > 0) {
@@ -423,7 +423,7 @@ const SheetsManager = {
     if (!sheet) {
       sheet = ss.insertSheet('Ratings');
     }
-    const headers = ['end', 'format', 'url', 'my_rating', 'my_pregame_rating', 'bullet', 'blitz', 'rapid', 'daily', 'live960', 'daily960'];
+    const headers = ['end', 'format', 'url', 'my_rating', 'my_pregame_rating', 'bullet', 'blitz', 'rapid', 'daily', 'live960', 'daily960', 'bughouse', 'crazyhouse', 'threecheck', 'koth', 'antichess', 'atomic', 'horde', 'racingkings'];
     sheet.clear();
     sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
     sheet.getRange(1, 1, 1, headers.length).setFontWeight('bold');
@@ -447,9 +447,27 @@ const SheetsManager = {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     let sheet = ss.getSheetByName('Ratings');
     if (!sheet) sheet = this.createRatingsSheet(ss);
-    const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
-    const headerMap = {};
+    let headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+    let headerMap = {};
     headers.forEach((h, i) => headerMap[h] = i);
+
+    // Ensure all required format columns exist
+    const allowedFormats = ['bullet', 'blitz', 'rapid', 'daily', 'live960', 'daily960', 'bughouse', 'crazyhouse', 'threecheck', 'koth', 'antichess', 'atomic', 'horde', 'racingkings'];
+    const neededFormatsSet = {};
+    games.forEach(g => {
+      const f = (g && g.format) ? String(g.format).trim() : '';
+      if (f && allowedFormats.indexOf(f) !== -1) neededFormatsSet[f] = true;
+    });
+    const missingFormats = Object.keys(neededFormatsSet).filter(f => !headerMap.hasOwnProperty(f));
+    if (missingFormats.length > 0) {
+      const startCol = sheet.getLastColumn() + 1;
+      sheet.getRange(1, startCol, 1, missingFormats.length).setValues([missingFormats]);
+      sheet.getRange(1, startCol, 1, missingFormats.length).setFontWeight('bold');
+      // Refresh headers and map after adding columns
+      headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+      headerMap = {};
+      headers.forEach((h, i) => headerMap[h] = i);
+    }
 
     const rows = games.map(game => {
       const row = new Array(headers.length).fill('');
@@ -498,6 +516,7 @@ const SheetsManager = {
       { stat: 'chess_rapid', col: 'rapid' },
       { stat: 'chess_daily', col: 'daily' },
       { stat: 'chess960_daily', col: 'daily960' }
+      // Note: Chess.com API does not provide stats for other variants here
     ];
     mappings.forEach(map => {
       const s = statsData[map.stat];
