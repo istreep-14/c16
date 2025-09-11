@@ -209,6 +209,19 @@ const SheetsManager = {
         gamesSheet.getRange(1, startCol, 1, missingHeaders.length).setFontWeight('bold');
       }
     }
+
+    // Update Ratings sheet headers
+    const ratingsSheet = ss.getSheetByName('Ratings');
+    if (ratingsSheet) {
+      const desired = ['end', 'format', 'url', 'my_rating', 'my_pregame_rating', 'bullet', 'blitz', 'rapid', 'daily', 'live960', 'daily960'];
+      const current = ratingsSheet.getRange(1, 1, 1, ratingsSheet.getLastColumn()).getValues()[0];
+      const missing = desired.filter(h => !current.includes(h));
+      if (missing.length > 0) {
+        const startCol = ratingsSheet.getLastColumn() + 1;
+        ratingsSheet.getRange(1, startCol, 1, missing.length).setValues([missing]);
+        ratingsSheet.getRange(1, startCol, 1, missing.length).setFontWeight('bold');
+      }
+    }
   },
   
   /**
@@ -335,6 +348,8 @@ const SheetsManager = {
     if (rows.length > 0) {
       const startRow = sheet.getLastRow() + 1;
       sheet.getRange(startRow, 1, rows.length, headers.length).setValues(rows);
+      // Sort newest games on top by 'end'
+      this.sortGamesByEndDesc();
     }
     
     return rows.length;
@@ -378,7 +393,7 @@ const SheetsManager = {
     if (!sheet) {
       sheet = ss.insertSheet('Ratings');
     }
-    const headers = ['end', 'format', 'my_rating', 'my_pregame_rating', 'bullet', 'blitz', 'rapid', 'daily', 'live960', 'daily960'];
+    const headers = ['end', 'format', 'url', 'my_rating', 'my_pregame_rating', 'bullet', 'blitz', 'rapid', 'daily', 'live960', 'daily960'];
     sheet.clear();
     sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
     sheet.getRange(1, 1, 1, headers.length).setFontWeight('bold');
@@ -411,6 +426,8 @@ const SheetsManager = {
       const endStr = typeof game.end === 'string' && game.end ? game.end : '';
       if (headerMap.hasOwnProperty('end')) row[headerMap['end']] = endStr;
       if (headerMap.hasOwnProperty('format')) row[headerMap['format']] = game.format || '';
+      if (headerMap.hasOwnProperty('url')) row[headerMap['url']] = game.url || '';
+      if (headerMap.hasOwnProperty('my_rating') && game.my_rating != null) row[headerMap['my_rating']] = game.my_rating;
       // Only populate the specific format column with the game's rating
       if (game.format && game.my_rating != null && headerMap.hasOwnProperty(game.format)) {
         row[headerMap[game.format]] = game.my_rating;
@@ -420,6 +437,8 @@ const SheetsManager = {
 
     const startRow = sheet.getLastRow() + 1;
     sheet.getRange(startRow, 1, rows.length, headers.length).setValues(rows);
+    // Sort newest on top
+    this.sortRatingsByEndDesc();
     return rows.length;
   },
 
@@ -455,6 +474,7 @@ const SheetsManager = {
     });
 
     sheet.appendRow(row);
+    this.sortRatingsByEndDesc();
     return true;
   },
   
@@ -512,6 +532,75 @@ const SheetsManager = {
         }
       });
     });
+    
+    // Also update Ratings sheet with my_pregame_rating and my_rating per URL
+    const ratingsSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Ratings');
+    if (ratingsSheet) {
+      const rHeaders = ratingsSheet.getRange(1, 1, 1, ratingsSheet.getLastColumn()).getValues()[0];
+      const rHeaderMap = {};
+      rHeaders.forEach((h, i) => rHeaderMap[h] = i);
+      const hasUrl = rHeaderMap.hasOwnProperty('url');
+      if (hasUrl) {
+        const urlCol = rHeaderMap['url'] + 1;
+        const lastRow = ratingsSheet.getLastRow();
+        const rUrls = lastRow > 1 ? ratingsSheet.getRange(2, urlCol, lastRow - 1, 1).getValues() : [];
+        updates.forEach(update => {
+          const data = update.data || {};
+          const url = data.url;
+          if (!url) return;
+          const idx = rUrls.findIndex(row => row[0] === url);
+          if (idx !== -1) {
+            if (data.my_pregame_rating != null && rHeaderMap.hasOwnProperty('my_pregame_rating')) {
+              ratingsSheet.getRange(idx + 2, rHeaderMap['my_pregame_rating'] + 1).setValue(data.my_pregame_rating);
+            }
+            if (data.my_rating != null && rHeaderMap.hasOwnProperty('my_rating')) {
+              ratingsSheet.getRange(idx + 2, rHeaderMap['my_rating'] + 1).setValue(data.my_rating);
+            }
+          } else {
+            // Append a new ratings row for this URL
+            const gRow = sheet.getRange(update.row, 1, 1, sheet.getLastColumn()).getValues()[0];
+            const gMap = {};
+            headers.forEach((h, i) => gMap[h] = i);
+            const newRow = new Array(rHeaders.length).fill('');
+            if (rHeaderMap.hasOwnProperty('end')) newRow[rHeaderMap['end']] = gRow[gMap['end']] || '';
+            if (rHeaderMap.hasOwnProperty('format')) newRow[rHeaderMap['format']] = gRow[gMap['format']] || '';
+            if (rHeaderMap.hasOwnProperty('url')) newRow[rHeaderMap['url']] = url;
+            if (rHeaderMap.hasOwnProperty('my_rating')) newRow[rHeaderMap['my_rating']] = (data.my_rating != null ? data.my_rating : gRow[gMap['my_rating']] || '');
+            if (rHeaderMap.hasOwnProperty('my_pregame_rating')) newRow[rHeaderMap['my_pregame_rating']] = data.my_pregame_rating != null ? data.my_pregame_rating : '';
+            const fmt = String(newRow[rHeaderMap['format']] || '').trim();
+            if (fmt && rHeaderMap.hasOwnProperty(fmt)) {
+              newRow[rHeaderMap[fmt]] = newRow[rHeaderMap['my_rating']];
+            }
+            ratingsSheet.appendRow(newRow);
+          }
+        });
+        // Keep Ratings sorted newest on top
+        this.sortRatingsByEndDesc();
+      }
+    }
+  },
+
+  /**
+   * Sorts a sheet by header name descending (newest first)
+   */
+  sortSheetByHeaderDesc: function(sheetName, headerName) {
+    const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(sheetName);
+    if (!sheet || sheet.getLastRow() <= 2) return;
+    const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+    const colIndex = headers.indexOf(headerName) + 1;
+    if (colIndex <= 0) return;
+    const range = sheet.getRange(2, 1, sheet.getLastRow() - 1, sheet.getLastColumn());
+    range.sort([{column: colIndex, ascending: false}]);
+  },
+
+  /** Sort Games by 'end' descending */
+  sortGamesByEndDesc: function() {
+    this.sortSheetByHeaderDesc('Games', 'end');
+  },
+
+  /** Sort Ratings by 'end' descending */
+  sortRatingsByEndDesc: function() {
+    this.sortSheetByHeaderDesc('Ratings', 'end');
   },
   
   /**

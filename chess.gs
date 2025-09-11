@@ -250,72 +250,70 @@ const GameDataProcessor = {
   
   /**
    * Computes start/end formatted times and date components
-   * Uses PGN Start/End times when available, handles midnight rollover
+   * Uses PGN UTC/Start for start and PGN End/end_time for end. Falls back gracefully.
    */
   computeTimeAnchors: function(game) {
-    // Determine end datetime (epoch ms)
-    let endEpochMs = null;
-    if (game.end_time) {
-      endEpochMs = game.end_time * 1000;
-    } else if (game.pgn_utc_date && game.pgn_utc_time) {
-      // Parse UTC date/time from PGN and convert to epoch
-      const d = (game.pgn_utc_date || '').replace(/\./g, '-'); // YYYY-MM-DD
-      const t = (game.pgn_utc_time || '').trim(); // HH:MM:SS
-      const m = d.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-      const tm = t.match(/^(\d{1,2}):(\d{2}):(\d{2})/);
-      if (m && tm) {
-        const year = parseInt(m[1], 10);
-        const month = parseInt(m[2], 10) - 1;
-        const day = parseInt(m[3], 10);
-        const hour = parseInt(tm[1], 10);
-        const minute = parseInt(tm[2], 10);
-        const second = parseInt(tm[3], 10);
-        endEpochMs = Date.UTC(year, month, day, hour, minute, second);
-      }
-    }
-    if (!endEpochMs) return {};
-    
-    // Prefer duration from PGN start/end times if available
-    let durationSeconds = Number(game.game_duration_seconds) || 0;
-    const parseHmsToSeconds = (str) => {
-      if (!str) return null;
-      const parts = String(str).trim().split(':');
-      if (parts.length < 2) return null;
-      const hh = parseInt(parts[0], 10);
-      const mm = parseInt(parts[1], 10);
-      const ss = parseInt(parts[2] || '0', 10);
-      if ([hh, mm, ss].some(isNaN)) return null;
-      return hh * 3600 + mm * 60 + ss;
+    // Helpers to parse UTC date/time from PGN
+    const parseUTCDateTimeToEpochMs = (dateStr, timeStr) => {
+      if (!dateStr || !timeStr) return null;
+      const d = String(dateStr).trim().replace(/\./g, '-');
+      const t = String(timeStr).trim();
+      const dm = d.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+      const tm = t.match(/^(\d{1,2}):(\d{2}):(\d{2})$/);
+      if (!dm || !tm) return null;
+      const year = parseInt(dm[1], 10);
+      const month = parseInt(dm[2], 10) - 1;
+      const day = parseInt(dm[3], 10);
+      const hour = parseInt(tm[1], 10);
+      const minute = parseInt(tm[2], 10);
+      const second = parseInt(tm[3], 10);
+      return Date.UTC(year, month, day, hour, minute, second);
     };
-    const startHms = parseHmsToSeconds(game.pgn_start_time);
-    const endHms = parseHmsToSeconds(game.pgn_end_time);
-    if (startHms !== null && endHms !== null) {
-      let delta = endHms - startHms;
-      if (delta < 0) delta += 24 * 3600; // Midnight rollover
-      // If PGN includes dates, incorporate multi-day difference
-      const parseYmd = (s) => {
-        if (!s) return null;
-        const ymd = String(s).trim().replace(/\./g, '-');
-        const m = ymd.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-        if (!m) return null;
-        return new Date(parseInt(m[1], 10), parseInt(m[2], 10) - 1, parseInt(m[3], 10));
-      };
-      const sd = parseYmd(game.pgn_start_date);
-      const ed = parseYmd(game.pgn_end_date);
-      if (sd && ed) {
-        const dayDiff = Math.round((ed.getTime() - sd.getTime()) / (24 * 3600 * 1000));
-        if (dayDiff > 0) delta += dayDiff * 24 * 3600;
-      }
-      if (delta > 0) {
-        durationSeconds = delta;
-      }
+    
+    // Determine anchors
+    let startEpochMs = null;
+    let endEpochMs = null;
+    
+    // End: prefer PGN EndDate/EndTime, else JSON end_time
+    if (game.pgn_end_date && game.pgn_end_time) {
+      endEpochMs = parseUTCDateTimeToEpochMs(game.pgn_end_date, game.pgn_end_time);
+    }
+    if (!endEpochMs && game.end_time) {
+      endEpochMs = game.end_time * 1000;
     }
     
-    // Compute formatted end and start
+    // Start: prefer PGN StartDate/StartTime, else UTCDate/UTCTime
+    if (game.pgn_start_date && game.pgn_start_time) {
+      startEpochMs = parseUTCDateTimeToEpochMs(game.pgn_start_date, game.pgn_start_time);
+    } else if (game.pgn_utc_date && game.pgn_utc_time) {
+      startEpochMs = parseUTCDateTimeToEpochMs(game.pgn_utc_date, game.pgn_utc_time);
+    }
+    
+    // Duration: prefer direct difference when both anchors exist
+    let durationSeconds = Number(game.game_duration_seconds) || 0;
+    if (startEpochMs && endEpochMs && endEpochMs >= startEpochMs) {
+      durationSeconds = Math.round((endEpochMs - startEpochMs) / 1000);
+    }
+    
+    // If only one anchor exists, derive the other using duration when available
+    if (!startEpochMs && endEpochMs && durationSeconds > 0) {
+      startEpochMs = endEpochMs - durationSeconds * 1000;
+    }
+    if (!endEpochMs && startEpochMs && durationSeconds > 0) {
+      endEpochMs = startEpochMs + durationSeconds * 1000;
+    }
+    
+    // Require at least end anchor for downstream grouping
+    if (!endEpochMs) return {};
+    if (!startEpochMs) {
+      startEpochMs = endEpochMs - (durationSeconds || 0) * 1000;
+    }
+    
+    // Format to local timezone strings
     const tz = Session.getScriptTimeZone();
     const endDate = new Date(endEpochMs);
     const endStr = Utilities.formatDate(endDate, tz, 'yyyy-MM-dd HH:mm:ss');
-    const startDate = new Date(endEpochMs - (durationSeconds || 0) * 1000);
+    const startDate = new Date(startEpochMs);
     const startStr = Utilities.formatDate(startDate, tz, 'yyyy-MM-dd HH:mm:ss');
     
     return {
