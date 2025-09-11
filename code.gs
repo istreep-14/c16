@@ -1,6 +1,6 @@
 /**
  * Chess.com Data Logger - Main Entry Point
- * This file handles menu creation, trigger management, and orchestrates all operations
+ * Handles menu creation, trigger management, and orchestrates operations
  */
 
 /**
@@ -13,9 +13,13 @@ function onOpen() {
     .addSeparator()
     .addItem('Fetch New Games', 'fetchNewGames')
     .addItem('Update Player Stats', 'updatePlayerStats')
+    .addSeparator()
+    .addItem('Build Dates Sheet (Full)', 'buildDatesSheet')
+    .addItem('Update Dates (Incremental)', 'updateDatesIncremental')
+    .addSeparator()
+    .addItem('Build Daily Stats (Full)', 'buildDailyStatsFull')
     .addItem('Update Daily Stats', 'updateDailyStats')
-    .addItem('Build Dates Sheet', 'buildDatesSheet')
-    .addItem('Update Today in Dates', 'updateDatesToday')
+    .addSeparator()
     .addItem('Process Callback Queue', 'processCallbackQueue')
     .addSeparator()
     .addItem('Historical Fetch (All Games)', 'historicalFetch')
@@ -32,10 +36,7 @@ function onOpen() {
  */
 function initialSetup() {
   try {
-    // Create all required sheets
     SheetsManager.createAllSheets();
-    
-    // Prompt for username if not set
     let username = ConfigManager.get('username');
     if (!username) {
       const ui = SpreadsheetApp.getUi();
@@ -44,23 +45,18 @@ function initialSetup() {
         'Enter your Chess.com username:',
         ui.ButtonSet.OK_CANCEL
       );
-      
       if (response.getSelectedButton() === ui.Button.OK) {
         username = response.getResponseText().trim();
         ConfigManager.set('username', username);
         ConfigManager.set('setupDate', new Date().toISOString());
         ConfigManager.set('lastFetch', null);
         ConfigManager.set('callbackQueue', []);
-        
-        ui.alert('Setup Complete', 
-          `Username set to: ${username}\n\n` +
-          'You can now use the menu to fetch games.',
+        ui.alert('Setup Complete',
+          'Username set to: ' + username + '\n\nYou can now use the menu to fetch games.',
           ui.ButtonSet.OK);
       }
     } else {
-      SpreadsheetApp.getUi().alert('Already Configured', 
-        `Current username: ${username}`,
-        SpreadsheetApp.getUi().ButtonSet.OK);
+      SpreadsheetApp.getUi().alert('Already Configured', 'Current username: ' + username, SpreadsheetApp.getUi().ButtonSet.OK);
     }
   } catch (error) {
     Logger.log('Error in initial setup: ' + error.toString());
@@ -74,39 +70,62 @@ function initialSetup() {
 function fetchNewGames() {
   const startTime = new Date();
   const checkpoint = CheckpointManager.load('fetchGames');
-  
   try {
     const username = ConfigManager.get('username');
     if (!username) {
       throw new Error('Username not configured. Run Initial Setup first.');
     }
-    
-    // Get last processed game timestamp
     const lastGameTime = checkpoint.lastGameTime || SheetsManager.getLastGameTimestamp();
-    
-    // Fetch and process new games
     const processor = new GameProcessor(username);
     const result = processor.processNewGames(lastGameTime, checkpoint);
-    
-    // Update checkpoint
     CheckpointManager.save('fetchGames', result.checkpoint);
-    
-    // Update last fetch time
     ConfigManager.set('lastFetch', new Date().toISOString());
-    
-    // Show results
+    // After writing games, update Dates and Daily Stats for the affected range
+    try {
+      if (result && typeof result.earliestNewGameEpoch === 'number' && result.earliestNewGameEpoch > 0) {
+        DatesManager.updateRange(result.earliestNewGameEpoch);
+        const dsp = new DailyStatsProcessor();
+        dsp.updateDailyStats(result.earliestNewGameEpoch);
+        // Advance incremental cursors to latest available
+        const latest = SheetsManager.getLastGameTimestamp();
+        if (latest) {
+          ConfigManager.set('lastDatesEpoch', latest);
+          ConfigManager.set('lastDailyStatsEpoch', latest);
+        }
+      }
+    } catch (e) {
+      try { SheetsManager.log('WARNING', 'PostFetch', 'Incremental Dates/DailyStats failed', { error: e && e.toString ? e.toString() : 'error' }); } catch (er) {}
+    }
     const duration = Math.round((new Date() - startTime) / 1000);
     SpreadsheetApp.getUi().alert(
       'Fetch Complete',
-      `Processed ${result.gamesProcessed} new games in ${duration} seconds.\n` +
-      `Total games in sheet: ${result.totalGames}`,
+      'Processed ' + result.gamesProcessed + ' new games in ' + duration + ' seconds.',
       SpreadsheetApp.getUi().ButtonSet.OK
     );
-    
   } catch (error) {
     Logger.log('Error fetching games: ' + error.toString());
-    CheckpointManager.save('fetchGames', checkpoint); // Save checkpoint on error
+    CheckpointManager.save('fetchGames', checkpoint);
     SpreadsheetApp.getUi().alert('Fetch Error', error.toString(), SpreadsheetApp.getUi().ButtonSet.OK);
+  }
+}
+
+/**
+ * Updates Dates incrementally from lastDatesEpoch to today
+ */
+function updateDatesIncremental() {
+  try {
+    const start = ConfigManager.get('lastDatesEpoch') || 0;
+    const res = DatesManager.updateRange(start);
+    const latest = SheetsManager.getLastGameTimestamp();
+    if (latest) ConfigManager.set('lastDatesEpoch', latest);
+    SpreadsheetApp.getUi().alert(
+      'Dates Updated',
+      'Updated ' + (res && res.days != null ? res.days : 0) + ' day(s).',
+      SpreadsheetApp.getUi().ButtonSet.OK
+    );
+  } catch (error) {
+    Logger.log('Error updating Dates: ' + error.toString());
+    SpreadsheetApp.getUi().alert('Dates Error', error.toString(), SpreadsheetApp.getUi().ButtonSet.OK);
   }
 }
 
@@ -119,35 +138,20 @@ function updatePlayerStats() {
     if (!username) {
       throw new Error('Username not configured. Run Initial Setup first.');
     }
-    
     const stats = ChessAPI.getPlayerStats(username);
     const profile = ChessAPI.getPlayerProfile(username);
-    
-    // Append to Player Stats sheet
     SheetsManager.appendPlayerStats(profile, stats);
     SheetsManager.appendRatingsFromPlayerStats(stats);
-    
-    // Store latest ratings for each format
     const ratings = {};
     const formats = ['chess_bullet', 'chess_blitz', 'chess_rapid', 'chess_daily'];
-    
-    formats.forEach(format => {
-      if (stats[format] && stats[format].last) {
-        ratings[format] = stats[format].last.rating;
-      }
-    });
-    
+    formats.forEach(format => { if (stats[format] && stats[format].last) ratings[format] = stats[format].last.rating; });
     ConfigManager.set('latestRatings', ratings);
     ConfigManager.set('lastStatsUpdate', new Date().toISOString());
-    
     SpreadsheetApp.getUi().alert(
       'Stats Updated',
-      `Updated ratings for ${username}:\n` +
-      Object.entries(ratings).map(([k, v]) => `${k}: ${v}`).join('\n') +
-      '\n\nData has been appended to the Player Stats sheet.',
+      'Updated ratings for ' + username + ':\n' + Object.entries(ratings).map(function(e){return e[0]+': '+e[1];}).join('\n') + '\n\nData appended to Player Stats.',
       SpreadsheetApp.getUi().ButtonSet.OK
     );
-    
   } catch (error) {
     Logger.log('Error updating stats: ' + error.toString());
     SpreadsheetApp.getUi().alert('Stats Error', error.toString(), SpreadsheetApp.getUi().ButtonSet.OK);
@@ -155,21 +159,42 @@ function updatePlayerStats() {
 }
 
 /**
- * Updates daily statistics sheet
+ * Updates daily statistics incrementally from lastDailyStatsEpoch
  */
 function updateDailyStats() {
   try {
-    const processor = new DailyStatsProcessor();
-    const result = processor.updateDailyStats();
-    
+    const dsp = new DailyStatsProcessor();
+    const start = ConfigManager.get('lastDailyStatsEpoch') || 0;
+    const result = dsp.updateDailyStats(start);
+    const latest = SheetsManager.getLastGameTimestamp();
+    if (latest) ConfigManager.set('lastDailyStatsEpoch', latest);
     SpreadsheetApp.getUi().alert(
       'Daily Stats Updated',
-      `Processed ${result.daysProcessed} days with ${result.totalGames} games.`,
+      'Processed ' + result.daysProcessed + ' days (incremental).',
       SpreadsheetApp.getUi().ButtonSet.OK
     );
-    
   } catch (error) {
     Logger.log('Error updating daily stats: ' + error.toString());
+    SpreadsheetApp.getUi().alert('Daily Stats Error', error.toString(), SpreadsheetApp.getUi().ButtonSet.OK);
+  }
+}
+
+/**
+ * Builds daily statistics fully (one-time or rebuild)
+ */
+function buildDailyStatsFull() {
+  try {
+    const dsp = new DailyStatsProcessor();
+    const result = dsp.updateDailyStats(null);
+    const latest = SheetsManager.getLastGameTimestamp();
+    if (latest) ConfigManager.set('lastDailyStatsEpoch', latest);
+    SpreadsheetApp.getUi().alert(
+      'Daily Stats Built (Full)',
+      'Processed ' + result.daysProcessed + ' days (full).',
+      SpreadsheetApp.getUi().ButtonSet.OK
+    );
+  } catch (error) {
+    Logger.log('Error building daily stats: ' + error.toString());
     SpreadsheetApp.getUi().alert('Daily Stats Error', error.toString(), SpreadsheetApp.getUi().ButtonSet.OK);
   }
 }
@@ -180,22 +205,16 @@ function updateDailyStats() {
 function processCallbackQueue() {
   const startTime = new Date();
   const checkpoint = CheckpointManager.load('callback');
-  
   try {
     const processor = new CallbackProcessor();
     const result = processor.processQueue(checkpoint);
-    
     CheckpointManager.save('callback', result.checkpoint);
-    
     const duration = Math.round((new Date() - startTime) / 1000);
     SpreadsheetApp.getUi().alert(
       'Callback Processing Complete',
-      `Processed ${result.processed} games in ${duration} seconds.\n` +
-      `Remaining in queue: ${result.remaining}\n` +
-      `Failed: ${result.failed}`,
+      'Processed ' + result.processed + ' games in ' + duration + ' seconds.\nRemaining in queue: ' + result.remaining + '\nFailed: ' + result.failed,
       SpreadsheetApp.getUi().ButtonSet.OK
     );
-    
   } catch (error) {
     Logger.log('Error processing callbacks: ' + error.toString());
     CheckpointManager.save('callback', checkpoint);
@@ -210,37 +229,28 @@ function historicalFetch() {
   const ui = SpreadsheetApp.getUi();
   const response = ui.alert(
     'Historical Fetch',
-    'This will fetch ALL historical games. This may take a long time.\n\n' +
-    'The process will checkpoint progress and can be resumed if interrupted.\n\n' +
-    'Continue?',
+    'This will fetch ALL historical games. This may take a long time.\n\nThe process will checkpoint and can be resumed if interrupted.\n\nContinue?',
     ui.ButtonSet.YES_NO
   );
-  
   if (response !== ui.Button.YES) return;
-  
   const startTime = new Date();
   const checkpoint = CheckpointManager.load('historicalFetch');
-  
   try {
     const username = ConfigManager.get('username');
     if (!username) {
       throw new Error('Username not configured. Run Initial Setup first.');
     }
-    
     const processor = new GameProcessor(username);
     const result = processor.processHistoricalGames(checkpoint);
-    
     CheckpointManager.save('historicalFetch', result.checkpoint);
-    
     const duration = Math.round((new Date() - startTime) / 1000);
     ui.alert(
       result.complete ? 'Historical Fetch Complete' : 'Historical Fetch Progress',
-      `Processed ${result.gamesProcessed} games in ${duration} seconds.\n` +
-      `Archives completed: ${result.archivesProcessed}/${result.totalArchives}\n` +
+      'Processed ' + result.gamesProcessed + ' games in ' + duration + ' seconds.\n' +
+      'Archives completed: ' + result.archivesProcessed + '/' + result.totalArchives + '\n' +
       (result.complete ? 'All games fetched!' : 'Run again to continue.'),
       ui.ButtonSet.OK
     );
-    
   } catch (error) {
     Logger.log('Error in historical fetch: ' + error.toString());
     CheckpointManager.save('historicalFetch', checkpoint);
@@ -270,49 +280,20 @@ function updateSheetHeaders() {
  */
 function setupTriggers() {
   try {
-    // Remove existing triggers first
     removeAllTriggers();
-    
     // Fetch new games every 4 hours
-    ScriptApp.newTrigger('fetchNewGames')
-      .timeBased()
-      .everyHours(4)
-      .create();
-    
+    ScriptApp.newTrigger('fetchNewGames').timeBased().everyHours(4).create();
     // Update player stats daily at 6 AM
-    ScriptApp.newTrigger('updatePlayerStats')
-      .timeBased()
-      .atHour(6)
-      .everyDays(1)
-      .create();
-    
-    // Update daily stats at 11:50 PM, 11:55 PM, and 12:00 AM
-    [23, 23, 0].forEach((hour, index) => {
-      const minute = index === 0 ? 50 : (index === 1 ? 55 : 0);
-      ScriptApp.newTrigger('updateDailyStats')
-        .timeBased()
-        .atHour(hour)
-        .nearMinute(minute)
-        .everyDays(1)
-        .create();
-    });
-    
-    // Process callback queue every 6 hours
-    ScriptApp.newTrigger('processCallbackQueue')
-      .timeBased()
-      .everyHours(6)
-      .create();
-    
+    ScriptApp.newTrigger('updatePlayerStats').timeBased().atHour(6).everyDays(1).create();
+    // Update Dates incrementally daily at 11:55 PM
+    ScriptApp.newTrigger('updateDatesIncremental').timeBased().atHour(23).nearMinute(55).everyDays(1).create();
+    // Update Daily Stats daily at 12:05 AM (captures previous day)
+    ScriptApp.newTrigger('updateDailyStats').timeBased().atHour(0).nearMinute(5).everyDays(1).create();
     SpreadsheetApp.getUi().alert(
       'Triggers Created',
-      'Automatic triggers have been set up:\n' +
-      '- Fetch games: Every 4 hours\n' +
-      '- Update stats: Daily at 6 AM\n' +
-      '- Daily stats: 11:50 PM, 11:55 PM, 12:00 AM\n' +
-      '- Callback queue: Every 6 hours',
+      'Automatic triggers have been set up.',
       SpreadsheetApp.getUi().ButtonSet.OK
     );
-    
   } catch (error) {
     Logger.log('Error setting up triggers: ' + error.toString());
     SpreadsheetApp.getUi().alert('Trigger Setup Error', error.toString(), SpreadsheetApp.getUi().ButtonSet.OK);
@@ -324,7 +305,7 @@ function setupTriggers() {
  */
 function removeAllTriggers() {
   const triggers = ScriptApp.getProjectTriggers();
-  triggers.forEach(trigger => ScriptApp.deleteTrigger(trigger));
+  triggers.forEach(function(trigger){ ScriptApp.deleteTrigger(trigger); });
 }
 
 /**
@@ -333,21 +314,20 @@ function removeAllTriggers() {
 function checkSystemHealth() {
   try {
     const health = SystemHealth.check();
-    
     SpreadsheetApp.getUi().alert(
       'System Health Check',
-      `Username: ${health.username || 'Not configured'}\n` +
-      `Last fetch: ${health.lastFetch || 'Never'}\n` +
-      `Total games: ${health.totalGames}\n` +
-      `Callback queue: ${health.callbackQueueSize} games\n` +
-      `Active triggers: ${health.triggerCount}\n` +
-      `Chess.com API: ${health.apiStatus}\n` +
-      `Sheets access: ${health.sheetsStatus}`,
+      'Username: ' + (health.username || 'Not configured') + '\n' +
+      'Last fetch: ' + (health.lastFetch || 'Never') + '\n' +
+      'Total games: ' + health.totalGames + '\n' +
+      'Callback queue: ' + health.callbackQueueSize + ' games\n' +
+      'Active triggers: ' + health.triggerCount + '\n' +
+      'Chess.com API: ' + health.apiStatus + '\n' +
+      'Sheets access: ' + health.sheetsStatus,
       SpreadsheetApp.getUi().ButtonSet.OK
     );
-    
   } catch (error) {
     Logger.log('Error checking health: ' + error.toString());
     SpreadsheetApp.getUi().alert('Health Check Error', error.toString(), SpreadsheetApp.getUi().ButtonSet.OK);
   }
 }
+

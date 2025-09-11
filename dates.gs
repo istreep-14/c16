@@ -8,10 +8,12 @@ const DatesManager = {
    * Returns the list of formats to track in Dates sheet
    */
   getAllFormats: function() {
+    var isMinimal = false; try { var v = ConfigManager.get('minimalMode'); isMinimal = (v === true || v === 'true' || v === 'on' || v === 1); } catch (e) {}
+    if (isMinimal) {
+      return ['bullet', 'blitz', 'rapid'];
+    }
     const baseFormats = ['bullet', 'blitz', 'rapid', 'daily', 'live960', 'daily960'];
-    // Include known variants except raw 'chess' and 'chess960'
     const variants = (CONSTANTS && CONSTANTS.VARIANTS) ? CONSTANTS.VARIANTS.filter(v => v !== 'chess' && v !== 'chess960') : [];
-    // Merge unique
     const set = {};
     baseFormats.concat(variants).forEach(f => set[f] = true);
     return Object.keys(set);
@@ -66,72 +68,50 @@ const DatesManager = {
   },
 
   /**
-   * Updates only today's row in Dates sheet
+   * Incrementally updates Dates from the provided start epoch to today.
+   * If startEpochSeconds is null and the sheet is empty, performs full build.
    */
-  updateTodayOnly: function() {
-    const t = Trace.start('DatesManager.updateTodayOnly', 'start');
+  updateRange: function(startEpochSeconds) {
+    const t = Trace.start('DatesManager.updateRange', 'start');
     const sheet = this.ensureDatesSheet();
     const formats = this.getAllFormats();
+    const hasData = sheet.getLastRow() > 1;
+    if (!hasData && (startEpochSeconds == null)) {
+      // Nothing yet: full build
+      const res = this.buildAndBackfillAll();
+      t.end({ mode: 'full', days: res.days });
+      return res;
+    }
     const tz = Session.getScriptTimeZone();
     const todayKey = Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd');
-    // Find existing row or append at top if missing (normalize date values)
+    const startKey = (typeof startEpochSeconds === 'number' && startEpochSeconds > 0)
+      ? Utilities.formatDate(TimeUtils.epochToLocal(startEpochSeconds), tz, 'yyyy-MM-dd')
+      : null;
+    const dateKeysDesc = this.getAllDateKeysDesc();
+    const keysInRange = startKey ? dateKeysDesc.filter(k => k <= todayKey && k >= startKey) : [todayKey];
+    if (keysInRange.length === 0) {
+      t.end({ mode: 'noop' });
+      return { days: 0 };
+    }
+    // Ensure rows exist for each key; if missing, insert at top maintaining desc order
     const lastRow = sheet.getLastRow();
-    let targetRow = null;
-    if (lastRow > 1) {
-      const dateValues = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
-      for (let i = 0; i < dateValues.length; i++) {
-        const cell = dateValues[i][0];
-        let cellKey = null;
-        if (cell instanceof Date) {
-          cellKey = Utilities.formatDate(cell, tz, 'yyyy-MM-dd');
-        } else if (typeof cell === 'string') {
-          const s = cell.trim();
-          if (s) {
-            if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
-              cellKey = s;
-            } else {
-              const ep = TimeUtils.parseLocalDateTimeToEpochSeconds(s);
-              if (ep) cellKey = Utilities.formatDate(TimeUtils.epochToLocal(ep), tz, 'yyyy-MM-dd');
-            }
-          }
-        }
-        if (cellKey === todayKey) {
-          targetRow = i + 2;
-          break;
-        }
-      }
-    }
-    if (!targetRow) {
-      // Prepend row for today at top (row 2) and shift existing down by inserting a new row
-      sheet.insertRows(2, 1);
-      sheet.getRange(2, 1, 1, 1 + formats.length).setValues([[todayKey].concat(new Array(formats.length).fill(''))]);
-      targetRow = 2;
-    }
-    // Compute desired ratings and only write if changed
-    const eventsByFormat = this.getRatingsEventsByFormat();
-    const endOfDayEpoch = TimeUtils.getEndOfDay(new Date(`${todayKey} 00:00:00`));
-    const newRowValues = formats.map(function(fmt) {
-      const rating = DatesManager.resolveRatingAtEpoch(eventsByFormat[fmt] || [], endOfDayEpoch);
-      return rating != null ? rating : '';
+    const existing = lastRow > 1 ? sheet.getRange(2, 1, lastRow - 1, 1).getValues().map(r => r[0]) : [];
+    const existingSet = {};
+    existing.forEach(v => {
+      if (v instanceof Date) existingSet[Utilities.formatDate(v, tz, 'yyyy-MM-dd')] = true; else if (typeof v === 'string') existingSet[v.trim()] = true;
     });
-    const currentRowValues = sheet.getRange(targetRow, 2, 1, formats.length).getValues()[0];
-    let changed = false;
-    for (let j = 0; j < formats.length; j++) {
-      const a = currentRowValues[j];
-      const b = newRowValues[j];
-      const aEmpty = (a === '' || a == null);
-      const bEmpty = (b === '' || b == null);
-      if (aEmpty && bEmpty) continue;
-      const aNum = (typeof a === 'number') ? a : (aEmpty ? null : Number(a));
-      const bNum = (typeof b === 'number') ? b : (bEmpty ? null : Number(b));
-      if (aNum == null && bNum == null) continue;
-      if (aNum !== bNum) { changed = true; break; }
-    }
-    if (changed) {
-      sheet.getRange(targetRow, 2, 1, formats.length).setValues([newRowValues]);
-    }
-    t.end({ updated: todayKey, changed: changed });
-    return { updated: todayKey, changed: changed };
+    let inserted = 0;
+    keysInRange.forEach((k, idx) => {
+      if (!existingSet[k]) {
+        sheet.insertRows(2, 1);
+        sheet.getRange(2, 1, 1, 1 + formats.length).setValues([[k].concat(new Array(formats.length).fill(''))]);
+        inserted++;
+      }
+    });
+    // Fill ratings for these keys
+    this.fillRatingsForRange(sheet, 2, dateKeysDesc, formats);
+    t.end({ mode: 'incremental', inserted: inserted, days: keysInRange.length });
+    return { days: keysInRange.length };
   },
 
   /**

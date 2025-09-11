@@ -62,6 +62,29 @@ const SheetsManager = {
    * Gets all headers for the Games sheet
    */
   getGamesHeaders: function() {
+    var isMinimal = false; try { var v = ConfigManager.get('minimalMode'); isMinimal = (v === true || v === 'true' || v === 'on' || v === 1); } catch (e) {}
+    if (isMinimal) {
+      return [
+        // Basic game info
+        'url', 'time_control', 'start', 'end', 'rated',
+        'date',
+        
+        // Time fields (parsed)
+        'year', 'month', 'day', 'hour', 'minute',
+        
+        // Player perspective
+        'my_color', 'my_username', 'my_rating', 'my_outcome', 'opponent_username', 'opponent_rating', 'opponent_result',
+        
+        // Game metadata
+        'time_class', 'format', 'base_time_seconds', 'increment_seconds', 'termination',
+        
+        // Derived light metric
+        'game_duration_seconds',
+        
+        // Processing metadata
+        'processed_timestamp', 'processing_version'
+      ];
+    }
     return [
       // Basic game info
       'url', 'pgn', 'time_control', 'start', 'end', 'rated',
@@ -423,7 +446,10 @@ const SheetsManager = {
     if (!sheet) {
       sheet = ss.insertSheet('Ratings');
     }
-    const headers = ['end', 'format', 'url', 'my_rating', 'my_pregame_rating', 'bullet', 'blitz', 'rapid', 'daily', 'live960', 'daily960', 'bughouse', 'crazyhouse', 'threecheck', 'koth', 'antichess', 'atomic', 'horde', 'racingkings'];
+    var isMinimal = false; try { var v = ConfigManager.get('minimalMode'); isMinimal = (v === true || v === 'true' || v === 'on' || v === 1); } catch (e) {}
+    const headers = isMinimal
+      ? ['end', 'format', 'url', 'my_rating', 'my_pregame_rating', 'bullet', 'blitz', 'rapid']
+      : ['end', 'format', 'url', 'my_rating', 'my_pregame_rating', 'bullet', 'blitz', 'rapid', 'daily', 'live960', 'daily960', 'bughouse', 'crazyhouse', 'threecheck', 'koth', 'antichess', 'atomic', 'horde', 'racingkings'];
     sheet.clear();
     sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
     sheet.getRange(1, 1, 1, headers.length).setFontWeight('bold');
@@ -452,7 +478,8 @@ const SheetsManager = {
     headers.forEach((h, i) => headerMap[h] = i);
 
     // Ensure all required format columns exist
-    const allowedFormats = ['bullet', 'blitz', 'rapid', 'daily', 'live960', 'daily960', 'bughouse', 'crazyhouse', 'threecheck', 'koth', 'antichess', 'atomic', 'horde', 'racingkings'];
+    var isMinimal = false; try { var v = ConfigManager.get('minimalMode'); isMinimal = (v === true || v === 'true' || v === 'on' || v === 1); } catch (e) {}
+    const allowedFormats = isMinimal ? ['bullet', 'blitz', 'rapid'] : ['bullet', 'blitz', 'rapid', 'daily', 'live960', 'daily960', 'bughouse', 'crazyhouse', 'threecheck', 'koth', 'antichess', 'atomic', 'horde', 'racingkings'];
     const neededFormatsSet = {};
     games.forEach(g => {
       const f = (g && g.format) ? String(g.format).trim() : '';
@@ -510,14 +537,20 @@ const SheetsManager = {
     if (headerMap.hasOwnProperty('end')) row[headerMap['end']] = nowStr;
     if (headerMap.hasOwnProperty('format')) row[headerMap['format']] = 'STATS';
 
-    const mappings = [
-      { stat: 'chess_bullet', col: 'bullet' },
-      { stat: 'chess_blitz', col: 'blitz' },
-      { stat: 'chess_rapid', col: 'rapid' },
-      { stat: 'chess_daily', col: 'daily' },
-      { stat: 'chess960_daily', col: 'daily960' }
-      // Note: Chess.com API does not provide stats for other variants here
-    ];
+    var isMinimal = false; try { var v = ConfigManager.get('minimalMode'); isMinimal = (v === true || v === 'true' || v === 'on' || v === 1); } catch (e) {}
+    const mappings = isMinimal
+      ? [
+        { stat: 'chess_bullet', col: 'bullet' },
+        { stat: 'chess_blitz', col: 'blitz' },
+        { stat: 'chess_rapid', col: 'rapid' }
+      ]
+      : [
+        { stat: 'chess_bullet', col: 'bullet' },
+        { stat: 'chess_blitz', col: 'blitz' },
+        { stat: 'chess_rapid', col: 'rapid' },
+        { stat: 'chess_daily', col: 'daily' },
+        { stat: 'chess960_daily', col: 'daily960' }
+      ];
     mappings.forEach(map => {
       const s = statsData[map.stat];
       if (s && s.last && s.last.rating != null && headerMap.hasOwnProperty(map.col)) {
@@ -853,6 +886,14 @@ const SheetsManager = {
     try {
       const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Logs');
       if (!sheet) return;
+      // Log level filter
+      var cfgLevel = 'INFO';
+      try { var lv = ConfigManager.get('logLevel'); if (typeof lv === 'string') cfgLevel = lv.toUpperCase(); } catch (e) {}
+      const order = { 'TRACE': 10, 'INFO': 20, 'WARNING': 30, 'ERROR': 40 };
+      const lvl = (level || 'INFO').toUpperCase();
+      const min = order[cfgLevel] != null ? order[cfgLevel] : 20;
+      const cur = order[lvl] != null ? order[lvl] : 20;
+      if (cur < min) return;
       
       const row = [
         new Date(),

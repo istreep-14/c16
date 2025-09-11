@@ -130,40 +130,9 @@ const TimeUtils = {
 };
 
 /**
- * Rating calculation utilities
+ * Rating calculation utilities (pruned to essentials)
  */
 const RatingUtils = {
-  /**
-   * Estimates pre-game rating using Glicko-2 reverse calculation
-   * This is an approximation since we don't have RD values
-   */
-  estimatePreGameRating: function(postRating, result, opponentRating) {
-    // Simplified estimation
-    // Actual Glicko-2 is complex, this is an approximation
-    const K = 32; // Approximate K-factor
-    const expectedScore = this.getExpectedScore(postRating, opponentRating);
-    const ratingChange = K * (result - expectedScore);
-    
-    // Pre-game rating = post-game rating - rating change
-    return Math.round(postRating - ratingChange);
-  },
-  
-  /**
-   * Calculates expected score using Elo formula
-   */
-  getExpectedScore: function(rating1, rating2) {
-    return 1 / (1 + Math.pow(10, (rating2 - rating1) / 400));
-  },
-  
-  /**
-   * Estimates rating change
-   */
-  estimateRatingChange: function(rating, result, opponentRating) {
-    const K = 32; // Approximate K-factor
-    const expectedScore = this.getExpectedScore(rating, opponentRating);
-    return Math.round(K * (result - expectedScore));
-  },
-  
   /**
    * Calculates performance rating for a set of games
    */
@@ -202,66 +171,12 @@ const RatingUtils = {
   }
 };
 
-/**
- * Data validation utilities
- */
-const ValidationUtils = {
-  /**
-   * Validates a game object has required fields
-   */
-  validateGame: function(game) {
-    const requiredFields = ['url'];
-    const missingFields = [];
-    
-    requiredFields.forEach(field => {
-      if (!game[field]) {
-        missingFields.push(field);
-      }
-    });
-    // Accept either old epoch end_time or new formatted end
-    if (!game.end_time && !game.end) {
-      missingFields.push('end');
-    }
-    
-    if (missingFields.length > 0) {
-      throw new Error(`Game missing required fields: ${missingFields.join(', ')}`);
-    }
-    
-    return true;
-  },
-  
-  /**
-   * Validates rating is in reasonable range
-   */
-  validateRating: function(rating) {
-    return rating && rating >= 100 && rating <= 3500;
-  },
-  
-  /**
-   * Cleans and validates username
-   */
-  cleanUsername: function(username) {
-    if (!username) return null;
-    return username.trim().toLowerCase();
-  }
-};
+// Validation utilities removed (unused)
 
 /**
- * Array and data manipulation utilities
+ * Array and data manipulation utilities (pruned)
  */
 const DataUtils = {
-  /**
-   * Groups array of objects by a key
-   */
-  groupBy: function(array, key) {
-    return array.reduce((groups, item) => {
-      const group = item[key];
-      if (!groups[group]) groups[group] = [];
-      groups[group].push(item);
-      return groups;
-    }, {});
-  },
-  
   /**
    * Calculates streak lengths
    */
@@ -278,17 +193,14 @@ const DataUtils = {
     
     results.forEach(result => {
       if (result === 1) {
-        // Win
         currentWinStreak++;
         currentLossStreak = 0;
         streaks.longestWin = Math.max(streaks.longestWin, currentWinStreak);
       } else if (result === 0) {
-        // Loss
         currentLossStreak++;
         currentWinStreak = 0;
         streaks.longestLoss = Math.max(streaks.longestLoss, currentLossStreak);
       } else {
-        // Draw - breaks both streaks
         currentWinStreak = 0;
         currentLossStreak = 0;
       }
@@ -298,84 +210,12 @@ const DataUtils = {
     streaks.currentLoss = currentLossStreak;
     
     return streaks;
-  },
-  
-  /**
-   * Safely parses JSON
-   */
-  safeJsonParse: function(str, defaultValue = null) {
-    try {
-      return JSON.parse(str);
-    } catch (e) {
-      return defaultValue;
-    }
-  },
-  
-  /**
-   * Chunks array into smaller arrays
-   */
-  chunk: function(array, size) {
-    const chunks = [];
-    for (let i = 0; i < array.length; i += size) {
-      chunks.push(array.slice(i, i + size));
-    }
-    return chunks;
   }
 };
 
-/**
- * Error handling utilities
- */
-const ErrorUtils = {
-  /**
-   * Formats error for logging
-   */
-  formatError: function(error, context = {}) {
-    return {
-      message: error.toString(),
-      stack: error.stack || '',
-      context: context,
-      timestamp: new Date().toISOString()
-    };
-  },
-  
-  /**
-   * Determines error severity
-   */
-  getErrorSeverity: function(error) {
-    const message = error.toString().toLowerCase();
-    
-    if (message.includes('api') || message.includes('fetch')) {
-      return 'CRITICAL';
-    } else if (message.includes('sheet') || message.includes('write')) {
-      return 'WARNING';
-    } else {
-      return 'INFO';
-    }
-  }
-};
+// Error utilities removed (unused)
 
-/**
- * Format detection utilities
- */
-const FormatUtils = {
-  /**
-   * Gets time class from base time
-   */
-  getTimeClass: function(baseTimeSeconds) {
-    if (baseTimeSeconds < 180) return 'bullet';
-    if (baseTimeSeconds < 600) return 'blitz';
-    if (baseTimeSeconds < 1800) return 'rapid';
-    return 'daily';
-  },
-  
-  /**
-   * Determines if a game is daily/correspondence
-   */
-  isDaily: function(game) {
-    return game.url && game.url.includes('/daily/');
-  }
-};
+// Format utilities removed (unused)
 
 /**
  * Lightweight tracing utility for function entry/exit timing
