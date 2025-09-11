@@ -27,7 +27,7 @@ const DatesManager = {
       sheet = ss.insertSheet('Dates');
     }
     const headers = ['date'].concat(this.getAllFormats());
-    sheet.clear();
+    // Ensure headers without clearing existing data rows
     sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
     sheet.getRange(1, 1, 1, headers.length).setFontWeight('bold');
     sheet.setFrozenRows(1);
@@ -40,6 +40,11 @@ const DatesManager = {
   buildAndBackfillAll: function() {
     const t = Trace.start('DatesManager.buildAndBackfillAll', 'start');
     const sheet = this.ensureDatesSheet();
+    // Clear existing data rows (preserve header)
+    const existingLastRow = sheet.getLastRow();
+    if (existingLastRow > 1) {
+      sheet.deleteRows(2, existingLastRow - 1);
+    }
     const dateKeysDesc = this.getAllDateKeysDesc();
     if (dateKeysDesc.length === 0) {
       t.end({ days: 0 });

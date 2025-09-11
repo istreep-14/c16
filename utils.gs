@@ -54,18 +54,61 @@ const TimeUtils = {
    * Parses a local datetime string 'yyyy-MM-dd HH:mm:ss' to epoch seconds
    */
   parseLocalDateTimeToEpochSeconds: function(dateTimeStr) {
-    if (!dateTimeStr || typeof dateTimeStr !== 'string') return null;
-    const m = dateTimeStr.match(/^(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2}):(\d{2})$/);
-    if (!m) return null;
-    const year = parseInt(m[1], 10);
-    const month = parseInt(m[2], 10) - 1;
-    const day = parseInt(m[3], 10);
-    const hour = parseInt(m[4], 10);
-    const minute = parseInt(m[5], 10);
-    const second = parseInt(m[6], 10);
-    const d = new Date(year, month, day, hour, minute, second, 0);
-    if (isNaN(d.getTime())) return null;
-    return Math.floor(d.getTime() / 1000);
+    if (!dateTimeStr) return null;
+    // Handle Date objects directly
+    if (dateTimeStr instanceof Date) {
+      const ms = dateTimeStr.getTime();
+      return isNaN(ms) ? null : Math.floor(ms / 1000);
+    }
+    // Handle numeric inputs (epoch seconds or milliseconds)
+    if (typeof dateTimeStr === 'number') {
+      if (!isFinite(dateTimeStr)) return null;
+      // Heuristic: >= 1e12 is ms, else seconds
+      return dateTimeStr >= 1e12 ? Math.floor(dateTimeStr / 1000) : Math.floor(dateTimeStr);
+    }
+    if (typeof dateTimeStr !== 'string') return null;
+    const s = dateTimeStr.trim();
+    // Primary format: yyyy-MM-dd HH:mm:ss
+    let m = s.match(/^(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2}):(\d{2})$/);
+    if (m) {
+      const year = parseInt(m[1], 10);
+      const month = parseInt(m[2], 10) - 1;
+      const day = parseInt(m[3], 10);
+      const hour = parseInt(m[4], 10);
+      const minute = parseInt(m[5], 10);
+      const second = parseInt(m[6], 10);
+      const d = new Date(year, month, day, hour, minute, second, 0);
+      if (isNaN(d.getTime())) return null;
+      return Math.floor(d.getTime() / 1000);
+    }
+    // ISO-like format: yyyy-MM-ddTHH:mm:ss[.sss][Z]
+    m = s.match(/^(\d{4})-(\d{2})-(\d{2})[T\s](\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(Z)?$/i);
+    if (m) {
+      const year = parseInt(m[1], 10);
+      const month = parseInt(m[2], 10) - 1;
+      const day = parseInt(m[3], 10);
+      const hour = parseInt(m[4], 10);
+      const minute = parseInt(m[5], 10);
+      const second = parseInt(m[6], 10);
+      const useUTC = !!m[7];
+      const ms = useUTC
+        ? Date.UTC(year, month, day, hour, minute, second)
+        : new Date(year, month, day, hour, minute, second, 0).getTime();
+      return Math.floor(ms / 1000);
+    }
+    // Date-only format: yyyy-MM-dd (assume start of day local)
+    m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (m) {
+      const year = parseInt(m[1], 10);
+      const month = parseInt(m[2], 10) - 1;
+      const day = parseInt(m[3], 10);
+      const d = new Date(year, month, day, 0, 0, 0, 0);
+      return Math.floor(d.getTime() / 1000);
+    }
+    // Fallback: let JS parse; if valid, return epoch seconds
+    const d = new Date(s);
+    if (!isNaN(d.getTime())) return Math.floor(d.getTime() / 1000);
+    return null;
   },
   
   /**
