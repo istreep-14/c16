@@ -68,35 +68,29 @@ const SheetsManager = {
       'black_username', 'black_rating', 'black_result', 'black_uuid',
       
       // Game metadata
-      'eco', 'eco_url', 'rules', 'time_class', 'format', 'game_type',
+      'eco', 'eco_url', 'rules', 'time_class', 'format',
       
       // Parsed time control
       'base_time_seconds', 'increment_seconds',
       
       // Derived fields
-      'my_color', 'my_username', 'my_rating', 'my_result', 'my_rating_change',
+      'my_color', 'my_username', 'my_rating', 'my_result',
       'opponent_username', 'opponent_rating', 'opponent_result',
       'game_duration_seconds', 'move_count', 'ply_count',
       
       // Rating calculations (pre-game estimates)
-      'my_rating_pregame_glicko', 'opponent_rating_pregame_glicko',
-      'my_rating_pregame_recent', 'opponent_rating_pregame_recent',
+      
       'my_rating_pregame_callback', 'opponent_rating_pregame_callback',
-      'rating_method_used',
       
       // Expected outcome
-      'expected_score',
       
       // Move data (stored as JSON strings)
       'moves_san', 'moves_numbered', 'clocks', 'clock_seconds', 'time_per_move',
       
       // Callback data (filled later)
       'callback_processed', 'callback_timestamp',
-      'white_rating_change_exact', 'black_rating_change_exact',
       'white_accuracy', 'black_accuracy',
-      'callback_game_id', 'callback_variant', 'callback_initial_setup', 'callback_fen',
-      'callback_pgn_headers', 'callback_analysis_depth', 'callback_best_move', 'callback_evaluation',
-      'callback_clocks', 'callback_move_times', 'callback_raw_data',
+      'callback_game_id',
       
       // Additional callback-derived fields (rating changes, profiles)
       'game_rating_change_white', 'game_rating_change_black',
