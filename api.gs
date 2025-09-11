@@ -211,6 +211,7 @@ class GameProcessor {
       const games = ChessAPI.getMonthlyGames(archive);
       
       // Filter games newer than lastGameTime
+      // Filter using raw end_time epoch (from API) to compare to lastGameTime
       const newGames = lastGameTime 
         ? games.filter(game => game.end_time > lastGameTime)
         : games;
@@ -232,6 +233,7 @@ class GameProcessor {
         if (uniqueGames.length > 0) {
           SheetsManager.batchWriteGames(uniqueGames);
           CallbackQueueManager.addToQueue(uniqueGames);
+          SheetsManager.updateRatingsSheet();
           gamesProcessed += uniqueGames.length;
         }
       }
@@ -243,6 +245,7 @@ class GameProcessor {
       if (uniqueGames.length > 0) {
         SheetsManager.batchWriteGames(uniqueGames);
         CallbackQueueManager.addToQueue(uniqueGames);
+        SheetsManager.updateRatingsSheet();
         gamesProcessed += uniqueGames.length;
       }
     }

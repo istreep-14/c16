@@ -13,6 +13,12 @@ const SheetsManager = {
     // Create Games sheet
     this.createGamesSheet(ss);
     
+    // Create Ratings sheet
+    this.createRatingsSheet(ss);
+    
+    // Create Callback Queue sheet
+    this.createCallbackQueueSheet(ss);
+    
     // Create Daily Stats sheet
     this.createDailyStatsSheet(ss);
     
@@ -58,10 +64,10 @@ const SheetsManager = {
   getGamesHeaders: function() {
     return [
       // Basic game info
-      'url', 'uuid', 'pgn', 'time_control', 'end_time', 'end_time_formatted', 'rated', 'tcn', 'initial_setup',
+      'url', 'uuid', 'pgn', 'time_control', 'start', 'end', 'rated', 'tcn', 'initial_setup',
       
       // Time fields (parsed from JSON)
-      'year', 'month', 'day', 'hour', 'minute', 'timestamp_local',
+      'year', 'month', 'day', 'hour', 'minute',
       
       // Player info
       'white_username', 'white_rating', 'white_result', 'white_uuid',
@@ -78,10 +84,6 @@ const SheetsManager = {
       'opponent_username', 'opponent_rating', 'opponent_result',
       'game_duration_seconds', 'move_count', 'ply_count',
       
-      // Rating calculations (pre-game estimates)
-      
-      'my_rating_pregame_callback', 'opponent_rating_pregame_callback',
-      
       // Expected outcome
       
       // Move data (stored as JSON strings)
@@ -93,7 +95,6 @@ const SheetsManager = {
       'callback_game_id',
       
       // Additional callback-derived fields (rating changes, profiles)
-      'game_rating_change_white', 'game_rating_change_black',
       'my_rating_change_callback', 'opponent_rating_change_callback',
       'my_pregame_rating', 'opponent_pregame_rating',
       'my_country_name_callback', 'opponent_country_name_callback',
@@ -263,25 +264,155 @@ const SheetsManager = {
     const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Games');
     if (!sheet || sheet.getLastRow() <= 1) return null;
     
-    // Get end_time column index
+    // Get end column index
     const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
-    const endTimeCol = headers.indexOf('end_time') + 1;
+    const endCol = headers.indexOf('end') + 1;
     
-    if (endTimeCol === 0) return null;
+    if (endCol === 0) return null;
     
     // Get all end times and find the maximum
-    const endTimes = sheet.getRange(2, endTimeCol, sheet.getLastRow() - 1, 1).getValues();
+    const endTimes = sheet.getRange(2, endCol, sheet.getLastRow() - 1, 1).getValues();
     
     let maxTime = 0;
     endTimes.forEach(row => {
-      const time = row[0];
-      if (time && typeof time === 'number' && time > maxTime) {
-        maxTime = time;
+      const endStr = row[0];
+      if (endStr && typeof endStr === 'string') {
+        const epoch = TimeUtils.parseLocalDateTimeToEpochSeconds(endStr);
+        if (epoch && epoch > maxTime) {
+          maxTime = epoch;
+        }
       }
     });
     
     return maxTime > 0 ? maxTime : null;
   },
+  
+  /**
+   * Creates the Ratings sheet
+   */
+  createRatingsSheet: function(ss) {
+    let sheet = ss.getSheetByName('Ratings');
+    if (!sheet) {
+      sheet = ss.insertSheet('Ratings');
+    }
+    const headers = ['end', 'format', 'my_rating', 'my_pregame_rating', 'bullet', 'blitz', 'rapid', 'daily', 'live960', 'daily960'];
+    sheet.clear();
+    sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+    sheet.getRange(1, 1, 1, headers.length).setFontWeight('bold');
+    sheet.setFrozenRows(1);
+    return sheet;
+  },
+  
+  /**
+   * Updates the Ratings sheet based on Games and Player Stats
+   */
+  updateRatingsSheet: function() {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = ss.getSheetByName('Ratings') || this.createRatingsSheet(ss);
+    const gamesSheet = ss.getSheetByName('Games');
+    const statsSheet = ss.getSheetByName('Player Stats');
+    if (!gamesSheet) return;
+    
+    const gameHeaders = gamesSheet.getRange(1, 1, 1, gamesSheet.getLastColumn()).getValues()[0];
+    const gameData = gamesSheet.getRange(2, 1, Math.max(0, gamesSheet.getLastRow() - 1), gamesSheet.getLastColumn()).getValues();
+    const games = gameData.map(row => {
+      const obj = {};
+      gameHeaders.forEach((h, i) => obj[h] = row[i]);
+      return obj;
+    }).filter(g => g.end);
+    
+    const defaultFormats = ['bullet', 'blitz', 'rapid', 'daily', 'live960', 'daily960'];
+    const observedFormats = Array.from(new Set(games.map(g => g.format).filter(Boolean)));
+    const allFormats = Array.from(new Set(defaultFormats.concat(observedFormats))).sort();
+    
+    let statsEvents = [];
+    if (statsSheet && statsSheet.getLastRow() > 1) {
+      const statsHeaders = statsSheet.getRange(1, 1, 1, statsSheet.getLastColumn()).getValues()[0];
+      const statsData = statsSheet.getRange(2, 1, statsSheet.getLastRow() - 1, statsSheet.getLastColumn()).getValues();
+      statsEvents = statsData.map(row => {
+        const o = {};
+        statsHeaders.forEach((h, i) => o[h] = row[i]);
+        return o;
+      }).map(o => ({
+        type: 'stats',
+        endStr: o.timestamp ? Utilities.formatDate(new Date(o.timestamp), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss') : null,
+        ratings: {
+          bullet: o.chess_bullet_last_rating || '',
+          blitz: o.chess_blitz_last_rating || '',
+          rapid: o.chess_rapid_last_rating || '',
+          daily: o.chess_daily_last_rating || '',
+          live960: '',
+          daily960: o.chess960_daily_last_rating || ''
+        }
+      })).filter(e => e.endStr);
+    }
+    
+    const gameEvents = games.map(g => ({
+      type: 'game',
+      endStr: g.end,
+      format: g.format,
+      myRating: g.my_rating || '',
+      myPregame: g.my_pregame_rating || ''
+    }));
+    
+    const allEvents = statsEvents.concat(gameEvents);
+    allEvents.sort((a, b) => {
+      const ea = TimeUtils.parseLocalDateTimeToEpochSeconds(a.endStr) || 0;
+      const eb = TimeUtils.parseLocalDateTimeToEpochSeconds(b.endStr) || 0;
+      return ea - eb;
+    });
+    
+    const ratingsByFormat = {};
+    allFormats.forEach(f => ratingsByFormat[f] = '');
+    
+    const timelineRowsAsc = [];
+    allEvents.forEach(ev => {
+      if (ev.type === 'stats') {
+        Object.keys(ev.ratings).forEach(fmt => {
+          if (allFormats.includes(fmt) && ev.ratings[fmt] !== '') {
+            ratingsByFormat[fmt] = ev.ratings[fmt];
+          }
+        });
+        const row = [ev.endStr, 'STATS', '', ''];
+        allFormats.forEach(fmt => row.push(ratingsByFormat[fmt]));
+        timelineRowsAsc.push(row);
+      } else {
+        if (ev.format && allFormats.includes(ev.format)) {
+          ratingsByFormat[ev.format] = ev.myRating || ratingsByFormat[ev.format] || '';
+        }
+        const row = [ev.endStr, ev.format || '', ev.myRating || '', ev.myPregame || ''];
+        allFormats.forEach(fmt => row.push(ratingsByFormat[fmt]));
+        timelineRowsAsc.push(row);
+      }
+    });
+    
+    const headers = ['end', 'format', 'my_rating', 'my_pregame_rating'].concat(allFormats);
+    sheet.clear();
+    sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+    sheet.getRange(1, 1, 1, headers.length).setFontWeight('bold');
+    sheet.setFrozenRows(1);
+    
+    const rowsDesc = timelineRowsAsc.reverse();
+    if (rowsDesc.length > 0) {
+      sheet.getRange(2, 1, rowsDesc.length, headers.length).setValues(rowsDesc);
+    }
+  },
+  
+  /**
+   * Creates Callback Queue sheet for per-row queue
+   */
+  createCallbackQueueSheet: function(ss) {
+    let sheet = ss.getSheetByName('Callback Queue');
+    if (!sheet) {
+      sheet = ss.insertSheet('Callback Queue');
+    }
+    const headers = ['gameId', 'url', 'format', 'isDaily', 'addedAt', 'attempts', 'lastAttempt', 'status', 'completedAt', 'lastError'];
+    sheet.clear();
+    sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+    sheet.getRange(1, 1, 1, headers.length).setFontWeight('bold');
+    sheet.setFrozenRows(1);
+    return sheet;
+  }
   
   /**
    * Updates callback data for specific games
@@ -355,7 +486,12 @@ const SheetsManager = {
     
     // Filter by date if specified
     if (startDate) {
-      return games.filter(game => game.timestamp_local > startDate);
+      return games.filter(game => {
+        const endStr = game.end;
+        if (!endStr) return false;
+        const epoch = TimeUtils.parseLocalDateTimeToEpochSeconds(endStr);
+        return epoch && epoch > startDate;
+      });
     }
     
     return games;

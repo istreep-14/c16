@@ -53,8 +53,12 @@ class DailyStatsProcessor {
    * Calculates ratings for all games
    */
   calculateRatings(games) {
-    // Sort games by timestamp
-    games.sort((a, b) => a.timestamp_local - b.timestamp_local);
+    // Sort games by end datetime
+    games.sort((a, b) => {
+      const ea = TimeUtils.parseLocalDateTimeToEpochSeconds(a.end) || 0;
+      const eb = TimeUtils.parseLocalDateTimeToEpochSeconds(b.end) || 0;
+      return ea - eb;
+    });
     
     // Track ratings by format
     const formatRatings = {};
@@ -191,7 +195,11 @@ class DailyStatsProcessor {
       // Get rating for this day
       if (format !== 'total') {
         // Find first and last game of the day
-        const sortedGames = games.sort((a, b) => a.timestamp_local - b.timestamp_local);
+        const sortedGames = games.sort((a, b) => {
+          const ea = TimeUtils.parseLocalDateTimeToEpochSeconds(a.end) || 0;
+          const eb = TimeUtils.parseLocalDateTimeToEpochSeconds(b.end) || 0;
+          return ea - eb;
+        });
         const firstGame = sortedGames[0];
         const lastGame = sortedGames[sortedGames.length - 1];
         
