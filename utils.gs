@@ -51,6 +51,24 @@ const TimeUtils = {
   },
   
   /**
+   * Parses a local datetime string 'yyyy-MM-dd HH:mm:ss' to epoch seconds
+   */
+  parseLocalDateTimeToEpochSeconds: function(dateTimeStr) {
+    if (!dateTimeStr || typeof dateTimeStr !== 'string') return null;
+    const m = dateTimeStr.match(/^(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2}):(\d{2})$/);
+    if (!m) return null;
+    const year = parseInt(m[1], 10);
+    const month = parseInt(m[2], 10) - 1;
+    const day = parseInt(m[3], 10);
+    const hour = parseInt(m[4], 10);
+    const minute = parseInt(m[5], 10);
+    const second = parseInt(m[6], 10);
+    const d = new Date(year, month, day, hour, minute, second, 0);
+    if (isNaN(d.getTime())) return null;
+    return Math.floor(d.getTime() / 1000);
+  },
+  
+  /**
    * Formats duration in seconds to readable string
    */
   formatDuration: function(seconds) {
@@ -149,7 +167,7 @@ const ValidationUtils = {
    * Validates a game object has required fields
    */
   validateGame: function(game) {
-    const requiredFields = ['url', 'end_time'];
+    const requiredFields = ['url'];
     const missingFields = [];
     
     requiredFields.forEach(field => {
@@ -157,6 +175,10 @@ const ValidationUtils = {
         missingFields.push(field);
       }
     });
+    // Accept either old epoch end_time or new formatted end
+    if (!game.end_time && !game.end) {
+      missingFields.push('end');
+    }
     
     if (missingFields.length > 0) {
       throw new Error(`Game missing required fields: ${missingFields.join(', ')}`);

@@ -78,6 +78,8 @@ class CallbackProcessor {
     // Apply updates to sheet
     if (updates.length > 0) {
       SheetsManager.updateCallbackData(updates);
+      // After callback updates, refresh Ratings sheet
+      SheetsManager.updateRatingsSheet();
     }
     
     // Get remaining stats
@@ -151,11 +153,9 @@ class CallbackProcessor {
     if (callbackData.game) {
       if (callbackData.game.ratingChangeWhite !== undefined) {
         ratingChangeWhite = callbackData.game.ratingChangeWhite;
-        update.game_rating_change_white = callbackData.game.ratingChangeWhite;
       }
       if (callbackData.game.ratingChangeBlack !== undefined) {
         ratingChangeBlack = callbackData.game.ratingChangeBlack;
-        update.game_rating_change_black = callbackData.game.ratingChangeBlack;
       }
     }
     
@@ -219,14 +219,7 @@ class CallbackProcessor {
       }
     }
     
-    // Set my/opponent pregame convenience fields (from "pregame" values captured above)
-    if (isWhite) {
-      update.my_rating_pregame_callback = update.white_rating_pregame_callback;
-      update.opponent_rating_pregame_callback = update.black_rating_pregame_callback;
-    } else {
-      update.my_rating_pregame_callback = update.black_rating_pregame_callback;
-      update.opponent_rating_pregame_callback = update.white_rating_pregame_callback;
-    }
+    // Removed redundant my/opponent pregame callback convenience fields
     
     // Map rating changes to me/opponent
     if (ratingChangeWhite !== undefined && ratingChangeBlack !== undefined) {

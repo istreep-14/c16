@@ -27,9 +27,9 @@ const GameDataProcessor = {
     const moveData = this.parseMoves(pgnData.moves, timeControl.base_time_seconds, timeControl.increment_seconds);
     Object.assign(game, moveData);
     
-    // Add time fields
-    const timeFields = this.parseTimeFields(game.end_time);
-    Object.assign(game, timeFields);
+    // Compute time anchors (start/end) and components using PGN times and end_time
+    const timeAnchors = this.computeTimeAnchors(game);
+    Object.assign(game, timeAnchors);
     
     // Determine format
     game.format = this.determineFormat(game);
@@ -81,7 +81,14 @@ const GameDataProcessor = {
             'ecourl': 'eco_url',  // Direct mapping to eco_url field
             'opening': 'pgn_opening',
             'termination': 'pgn_termination',
-            'currentposition': 'pgn_current_position'
+            'currentposition': 'pgn_current_position',
+            // Extra timing headers
+            'utcdate': 'pgn_utc_date',
+            'utctime': 'pgn_utc_time',
+            'starttime': 'pgn_start_time',
+            'endtime': 'pgn_end_time',
+            'startdate': 'pgn_start_date',
+            'enddate': 'pgn_end_date'
           };
           
           if (headerMap[key]) {
@@ -242,24 +249,88 @@ const GameDataProcessor = {
   },
   
   /**
-   * Parses time fields from epoch timestamp
+   * Computes start/end formatted times and date components
+   * Uses PGN Start/End times when available, handles midnight rollover
    */
-  parseTimeFields: function(endTime) {
-    if (!endTime) return {};
+  computeTimeAnchors: function(game) {
+    // Determine end datetime (epoch ms)
+    let endEpochMs = null;
+    if (game.end_time) {
+      endEpochMs = game.end_time * 1000;
+    } else if (game.pgn_utc_date && game.pgn_utc_time) {
+      // Parse UTC date/time from PGN and convert to epoch
+      const d = (game.pgn_utc_date || '').replace(/\./g, '-'); // YYYY-MM-DD
+      const t = (game.pgn_utc_time || '').trim(); // HH:MM:SS
+      const m = d.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+      const tm = t.match(/^(\d{1,2}):(\d{2}):(\d{2})/);
+      if (m && tm) {
+        const year = parseInt(m[1], 10);
+        const month = parseInt(m[2], 10) - 1;
+        const day = parseInt(m[3], 10);
+        const hour = parseInt(tm[1], 10);
+        const minute = parseInt(tm[2], 10);
+        const second = parseInt(tm[3], 10);
+        endEpochMs = Date.UTC(year, month, day, hour, minute, second);
+      }
+    }
+    if (!endEpochMs) return {};
     
-    // Convert epoch to date
-    const date = new Date(endTime * 1000);
+    // Prefer duration from PGN start/end times if available
+    let durationSeconds = Number(game.game_duration_seconds) || 0;
+    const parseHmsToSeconds = (str) => {
+      if (!str) return null;
+      const parts = String(str).trim().split(':');
+      if (parts.length < 2) return null;
+      const hh = parseInt(parts[0], 10);
+      const mm = parseInt(parts[1], 10);
+      const ss = parseInt(parts[2] || '0', 10);
+      if ([hh, mm, ss].some(isNaN)) return null;
+      return hh * 3600 + mm * 60 + ss;
+    };
+    const startHms = parseHmsToSeconds(game.pgn_start_time);
+    const endHms = parseHmsToSeconds(game.pgn_end_time);
+    if (startHms !== null && endHms !== null) {
+      let delta = endHms - startHms;
+      if (delta < 0) delta += 24 * 3600; // Midnight rollover
+      // If PGN includes dates, incorporate multi-day difference
+      const parseYmd = (s) => {
+        if (!s) return null;
+        const ymd = String(s).trim().replace(/\./g, '-');
+        const m = ymd.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+        if (!m) return null;
+        return new Date(parseInt(m[1], 10), parseInt(m[2], 10) - 1, parseInt(m[3], 10));
+      };
+      const sd = parseYmd(game.pgn_start_date);
+      const ed = parseYmd(game.pgn_end_date);
+      if (sd && ed) {
+        const dayDiff = Math.round((ed.getTime() - sd.getTime()) / (24 * 3600 * 1000));
+        if (dayDiff > 0) delta += dayDiff * 24 * 3600;
+      }
+      if (delta > 0) {
+        durationSeconds = delta;
+      }
+    }
+    
+    // Compute formatted end and start
+    const tz = Session.getScriptTimeZone();
+    const endDate = new Date(endEpochMs);
+    const endStr = Utilities.formatDate(endDate, tz, 'yyyy-MM-dd HH:mm:ss');
+    const startDate = new Date(endEpochMs - (durationSeconds || 0) * 1000);
+    const startStr = Utilities.formatDate(startDate, tz, 'yyyy-MM-dd HH:mm:ss');
     
     return {
-      year: date.getFullYear(),
-      month: date.getMonth() + 1, // 1-12
-      day: date.getDate(),
-      hour: date.getHours(),
-      minute: date.getMinutes(),
-      timestamp_local: endTime, // Keep original epoch for sorting
-      end_time_formatted: Utilities.formatDate(date, Session.getScriptTimeZone(), "yyyy-MM-dd HH:mm:ss") // Human readable format
+      year: endDate.getFullYear(),
+      month: endDate.getMonth() + 1,
+      day: endDate.getDate(),
+      hour: endDate.getHours(),
+      minute: endDate.getMinutes(),
+      end: endStr,
+      start: startStr,
+      game_duration_seconds: durationSeconds
     };
   },
+  
+  // parseTimeFields deprecated in favor of computeTimeAnchors
   
   /**
    * Parses time control string
