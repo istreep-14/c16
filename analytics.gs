@@ -89,65 +89,7 @@ class DailyStatsProcessor {
    * Calculates ratings for a single game
    */
   calculateGameRatings(game, formatHistory) {
-    // Skip if callback data already exists
-    if (game.callback_processed) {
-      game.rating_method_used = 'callback';
-      return;
-    }
-    
-    // Calculate my pre-game rating
-    if (game.my_rating && game.my_result !== null && game.opponent_rating) {
-      // Estimate using Glicko
-      game.my_rating_pregame_glicko = RatingUtils.estimatePreGameRating(
-        game.my_rating,
-        game.my_result,
-        game.opponent_rating
-      );
-      
-      // Estimate opponent's pre-game rating (inverse result)
-      const opponentResult = 1 - game.my_result;
-      game.opponent_rating_pregame_glicko = RatingUtils.estimatePreGameRating(
-        game.opponent_rating,
-        opponentResult,
-        game.my_rating_pregame_glicko
-      );
-    }
-    
-    // Use most recent rating
-    if (formatHistory.lastRating) {
-      game.my_rating_pregame_recent = formatHistory.lastRating;
-      
-      // Calculate rating change
-      const currentRating = game.my_rating || formatHistory.lastRating;
-      game.my_rating_change = currentRating - formatHistory.lastRating;
-      
-      // Estimate opponent's pre-game rating
-      if (game.opponent_rating && game.my_rating_change) {
-        game.opponent_rating_pregame_recent = game.opponent_rating + game.my_rating_change;
-      }
-    } else {
-      // First game of format - use current rating
-      game.my_rating_pregame_recent = game.my_rating;
-      game.my_rating_change = 0;
-    }
-    
-    // Determine which method to use
-    if (game.my_rating_pregame_recent && 
-        Math.abs(game.my_rating - game.my_rating_pregame_recent) < 100) {
-      // Recent rating seems reasonable
-      game.rating_method_used = 'recent';
-    } else {
-      // Use Glicko estimate
-      game.rating_method_used = 'glicko';
-    }
-    
-    // Calculate expected score
-    const myPreRating = game[`my_rating_pregame_${game.rating_method_used}`];
-    const oppPreRating = game[`opponent_rating_pregame_${game.rating_method_used}`];
-    
-    if (myPreRating && oppPreRating) {
-      game.expected_score = RatingUtils.getExpectedScore(myPreRating, oppPreRating);
-    }
+    // Intentionally left blank: removed pregame estimation and expected score
   }
   
   /**
@@ -254,10 +196,10 @@ class DailyStatsProcessor {
         const lastGame = sortedGames[sortedGames.length - 1];
         
         // Rating at start of day
-        if (firstGame.my_rating_pregame_recent) {
-          stats.rating_start = firstGame.my_rating_pregame_recent;
-        } else if (firstGame.my_rating_pregame_glicko) {
-          stats.rating_start = firstGame.my_rating_pregame_glicko;
+        if (firstGame.my_pregame_rating) {
+          stats.rating_start = firstGame.my_pregame_rating;
+        } else if (firstGame.my_rating) {
+          stats.rating_start = firstGame.my_rating;
         }
         
         // Rating at end of day

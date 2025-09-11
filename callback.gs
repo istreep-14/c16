@@ -143,11 +143,9 @@ class CallbackProcessor {
     if (callbackData.ratingChange) {
       if (callbackData.ratingChange.white !== undefined) {
         ratingChangeWhite = callbackData.ratingChange.white;
-        update.white_rating_change_exact = callbackData.ratingChange.white;
       }
       if (callbackData.ratingChange.black !== undefined) {
         ratingChangeBlack = callbackData.ratingChange.black;
-        update.black_rating_change_exact = callbackData.ratingChange.black;
       }
     }
     if (callbackData.game) {
@@ -183,31 +181,15 @@ class CallbackProcessor {
     if (callbackData.game) {
       // Game metadata
       update.callback_game_id = callbackData.game.id || '';
-      update.callback_variant = callbackData.game.variant || '';
-      update.callback_initial_setup = callbackData.game.initialSetup || '';
-      update.callback_fen = callbackData.game.fen || '';
-      update.callback_pgn_headers = JSON.stringify(callbackData.game.pgnHeaders || {});
     }
     
-    // Extract analysis data if available
-    if (callbackData.analysis) {
-      update.callback_analysis_depth = callbackData.analysis.depth || '';
-      update.callback_best_move = callbackData.analysis.bestMove || '';
-      update.callback_evaluation = callbackData.analysis.evaluation || '';
-    }
+    // Analysis fields removed
     
-    // Extract clock data
-    if (callbackData.clocks) {
-      update.callback_clocks = JSON.stringify(callbackData.clocks);
-    }
+    // Clock fields removed
     
-    // Extract move times if available
-    if (callbackData.moveTimes) {
-      update.callback_move_times = JSON.stringify(callbackData.moveTimes);
-    }
+    // Move times removed
     
-    // Store full raw callback data for future reference
-    update.callback_raw_data = JSON.stringify(callbackData);
+    // Do not store raw callback data
     
     // Determine me vs opponent, compute rating changes and pregame by subtraction, and capture profile fields
     const configUsername = (ConfigManager.get('username') || '').toLowerCase();
