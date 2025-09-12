@@ -7,15 +7,20 @@ function jobFetch() {
     var start = Date.now();
     var username = ConfigRepo.get('username'); if (!username) throw new Error('Username not configured.');
     var archives = ChessApi.getArchives(username);
-    // Look-back rule: process last archive and one prior at minimum
-    var maxArchives = (ConfigRepo.getNumber('MAX_ARCHIVES_PER_RUN') || CONSTANTS.MAX_ARCHIVES_PER_RUN);
-    var toProcess = archives.slice(Math.max(0, archives.length - Math.max(2, maxArchives)));
+    // Process all archives by default; allow optional cap via Config if >0
+    var cfgMaxArchives = ConfigRepo.getNumber('MAX_ARCHIVES_PER_RUN');
+    var toProcess = (cfgMaxArchives && cfgMaxArchives > 0) ? archives.slice(Math.max(0, archives.length - cfgMaxArchives)) : archives.slice();
     var existing = GamesRepo.readExistingUrlSet();
     var rows=[]; var queueItems=[]; var gamesCount=0;
-    var maxGames = (ConfigRepo.getNumber('MAX_GAMES_PER_RUN') || CONSTANTS.MAX_GAMES_PER_RUN);
-    for (var i=toProcess.length-1;i>=0;i--) {
-      var monthly = ChessApi.getMonthlyGames(toProcess[i]);
-      for (var j=monthly.length-1;j>=0;j--) {
+    var cfgMaxGames = ConfigRepo.getNumber('MAX_GAMES_PER_RUN'); var maxGames = (cfgMaxGames==null || cfgMaxGames<=0) ? Infinity : cfgMaxGames;
+    var batchSize = Math.min(CONSTANTS.BATCH_SIZE, 25);
+    for (var bi=0; bi<toProcess.length; bi+=batchSize) {
+      if ((Date.now()-start) > (CONSTANTS.MAX_EXECUTION_TIME-5000)) break;
+      var batch = toProcess.slice(bi, bi+batchSize);
+      var monthlyResults = ChessApi.getMonthlyGamesBatch(batch);
+      for (var b=0;b<monthlyResults.length;b++) {
+        var monthly = (monthlyResults[b] && monthlyResults[b].games) ? monthlyResults[b].games : [];
+        for (var j=monthly.length-1;j>=0;j--) {
         var g = monthly[j]; var url = g.url; if (!url || existing.has(url)) continue; existing.add(url);
         // Light processing
         var white = g.white||{}; var black=g.black||{};
@@ -69,8 +74,9 @@ function jobFetch() {
         queueItems.push({ id: Utilities.getUuid(), type: 'heavy_derivation', key: url, url: url, status: 'pending', attempts: 0, nextAttemptAt: '', lastError: '', payload: {}, addedAt: new Date(), updatedAt: new Date() });
         queueItems.push({ id: Utilities.getUuid(), type: 'callback_enrich', key: url, url: url, status: 'pending', attempts: 0, nextAttemptAt: '', lastError: '', payload: {}, addedAt: new Date(), updatedAt: new Date() });
         if (gamesCount>=maxGames) break;
+        }
+        if (gamesCount>=maxGames) break;
       }
-      if (gamesCount>=maxGames) break;
     }
     if (rows.length>0) GamesRepo.appendRows(rows);
     if (queueItems.length>0) WorkQueueRepo.enqueue(queueItems);

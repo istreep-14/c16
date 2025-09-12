@@ -43,6 +43,30 @@ var ChessApi = (function() {
   function getStats(username) { return request(base() + '/player/' + username + '/stats'); }
   function getArchives(username) { var r = request(base() + '/player/' + username + '/games/archives'); return r.archives || []; }
   function getMonthlyGames(archiveUrl) { var r = request(archiveUrl); return r.games || []; }
+  function getMonthlyGamesBatch(archiveUrls) {
+    if (!archiveUrls || archiveUrls.length === 0) return [];
+    var remaining = cap() - calls; if (remaining <= 0) return [];
+    var urls = archiveUrls.slice(0, remaining);
+    var reqs = urls.map(function(u){ return { url: u, method: 'get', muteHttpExceptions: true, headers: { 'User-Agent': CONSTANTS.API.USER_AGENT } }; });
+    var responses = UrlFetchApp.fetchAll(reqs);
+    var results = [];
+    for (var i=0;i<responses.length;i++) {
+      calls++;
+      var res = responses[i];
+      var code = res.getResponseCode();
+      if (code === 200) {
+        try {
+          var parsed = JSON.parse(res.getContentText());
+          results.push({ url: urls[i], games: (parsed && parsed.games) ? parsed.games : [] });
+        } catch (e) {
+          results.push({ url: urls[i], games: [] });
+        }
+      } else {
+        results.push({ url: urls[i], games: [] });
+      }
+    }
+    return results;
+  }
   function getCallback(gameUrl) {
     var m = gameUrl.match(new RegExp(CONSTANTS.REGEX.CHESS_COM_GAME_ID));
     if (!m) throw new Error('Invalid game URL: ' + gameUrl);
@@ -52,6 +76,6 @@ var ChessApi = (function() {
     return JSON.parse(res.getContentText());
   }
 
-  return { getProfile: getProfile, getStats: getStats, getArchives: getArchives, getMonthlyGames: getMonthlyGames, getCallback: getCallback };
+  return { getProfile: getProfile, getStats: getStats, getArchives: getArchives, getMonthlyGames: getMonthlyGames, getMonthlyGamesBatch: getMonthlyGamesBatch, getCallback: getCallback };
 })();
 
