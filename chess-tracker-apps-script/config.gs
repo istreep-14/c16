@@ -9,33 +9,36 @@ const SHEET_NAMES = {
 };
 
 const GAMES_HEADERS = [
-  'game_id',
-  'archive_month',
-  'date_key',
-  'start_time_iso',
-  'end_time_iso',
-  'time_class',
-  'format',
-  'rated',
-  'rules',
-  'speed',
-  'color',
-  'opponent',
-  'opponent_rating',
-  'result',
-  'url',
-  'pgn_file_id',
-  'pgn_offset_start',
-  'pgn_offset_end'
+  // identity
+  'game_id','archive_month',
+  // timing
+  'end_date','start_time','end_time',
+  // main info
+  'time_class','format','rated','rules','speed','time_control','eco','eco_url','timezone','current_position','url','link',
+  // colors and players in requested order
+  'my_color','my_username','my_rating','my_result','opponent_username','opponent_rating','opponent_result','termination_result',
+  // PGN player mirrors
+  'white_username','white_elo','black_username','black_elo',
+  // callback deltas and derivations
+  'my_pregame_rating','opponent_pregame_rating','my_rating_change_callback','opponent_rating_change_callback',
+  // file refs
+  'pgn_file_id','pgn_offset_start','pgn_offset_end'
 ];
 
 const GAMEMETA_HEADERS = [
   'game_id','callback_status','callback_file_id','callback_error','last_updated_iso',
   // PGN-derived
-  'eco','eco_url','opening','termination','time_control','white_elo','black_elo','white_rating_diff','black_rating_diff','ply_count','game_duration_seconds',
+  'opening','termination','ply_count',
   // JSON-derived (Chess.com API)
   'uuid','fen','initial_setup','tcn','tournament','match',
-  'white_username','black_username','white_result','black_result','white_accuracy','black_accuracy'
+  'white_result','black_result','white_accuracy','black_accuracy',
+  // Callback-only enrichments requested
+  'my_country_name_callback','opponent_country_name_callback',
+  'my_default_tab_callback','opponent_default_tab_callback',
+  'my_post_move_action_callback','opponent_post_move_action_callback',
+  'my_membership_level_callback','opponent_membership_level_callback',
+  'my_membership_code_callback','opponent_membership_code_callback',
+  'my_member_since_callback','opponent_member_since_callback'
 ];
 
 const DAILYSTATS_HEADERS = [
