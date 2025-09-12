@@ -10,6 +10,7 @@ function onOpen() {
     .addItem('Fetch New Games', 'jobFetch')
     .addItem('Process Work Queue', 'jobDeriveWorker')
     .addItem('Build/Update Daily Stats', 'jobBuildDailyStatsIncremental')
+    .addItem('Apply Header Layout', 'applyHeaderLayout')
     .addSeparator()
     .addItem('Setup Triggers', 'setupTriggers')
     .addItem('Remove All Triggers', 'removeAllTriggers')
