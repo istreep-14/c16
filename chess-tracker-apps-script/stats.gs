@@ -13,10 +13,11 @@ function updateDailyStatsAndSeal() {
 
   const values = gamesSheet.getRange(2, 1, lastRow - 1, headers.length).getValues();
 
-  const now = new Date();
-  const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-  const yesterday = new Date(today.getTime() - 24 * 3600 * 1000);
-  const targetDays = new Set([today.toISOString().slice(0, 10), yesterday.toISOString().slice(0, 10)]);
+  const tz = Session.getScriptTimeZone();
+  const todayStr = Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd');
+  const yMs = new Date().getTime() - 24 * 3600 * 1000;
+  const yesterdayStr = Utilities.formatDate(new Date(yMs), tz, 'yyyy-MM-dd');
+  const targetDays = new Set([todayStr, yesterdayStr]);
 
   const agg = new Map(); // key: date|format -> {time_class->counts}
 
@@ -37,9 +38,17 @@ function updateDailyStatsAndSeal() {
   const dsHeaders = DAILYSTATS_HEADERS;
   for (const [key, a] of agg.entries()) {
     const [dateKey, format, timeClass] = key.split('|');
-    // Find row by composite (date_key + format + time_class). We use date_key to find, then override.
-    const rowIdx = findRowIndexByValue_(SHEET_NAMES.DAILYSTATS, 'date_key', dateKey);
-    const row = [dateKey, format, timeClass, a.gp, a.w, a.l, a.d, '', '', '', '', getIsoNow()];
+    // Upsert by full composite: find by exact triple match
+    let rowIdx = -1;
+    const last = dsSheet.getLastRow();
+    if (last >= 2) {
+      const all = dsSheet.getRange(2, 1, last - 1, dsHeaders.length).getValues();
+      for (let i = 0; i < all.length; i++) {
+        if (String(all[i][0]) === dateKey && String(all[i][1]) === format && String(all[i][2]) === timeClass) { rowIdx = i + 2; break; }
+      }
+    }
+    const dateCell = parseDateForSheet_(dateKey, tz);
+    const row = [dateCell, format, timeClass, a.gp, a.w, a.l, a.d, '', '', '', '', getIsoNow()];
     if (rowIdx === -1) {
       insertRowsAtTop_(SHEET_NAMES.DAILYSTATS, [row]);
     } else {
@@ -85,8 +94,19 @@ function recomputeAllDailyStats() {
   const rowsOut = [];
   for (const [key, a] of agg.entries()) {
     const [dateKey, format, timeClass] = key.split('|');
-    rowsOut.push([dateKey, format, timeClass, a.gp, a.w, a.l, a.d, '', '', '', '', getIsoNow()]);
+    const dateCell = parseDateForSheet_(dateKey, Session.getScriptTimeZone());
+    rowsOut.push([dateCell, format, timeClass, a.gp, a.w, a.l, a.d, '', '', '', '', getIsoNow()]);
   }
-  rowsOut.sort((r1, r2) => (r1[0] < r2[0] ? 1 : (r1[0] > r2[0] ? -1 : 0))); // date desc
+  rowsOut.sort((r1, r2) => (r1[0].getTime() < r2[0].getTime() ? 1 : (r1[0].getTime() > r2[0].getTime() ? -1 : 0))); // date desc
   if (rowsOut.length > 0) insertRowsAtTop_(SHEET_NAMES.DAILYSTATS, rowsOut);
+}
+
+function parseDateForSheet_(yyyyDashMmDashDd, tz) {
+  if (!yyyyDashMmDashDd) return '';
+  const m = String(yyyyDashMmDashDd).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return yyyyDashMmDashDd;
+  const y = Number(m[1]); const mo = Number(m[2]); const d = Number(m[3]);
+  // Create a Date in local script timezone day. Sheets will display with date formatting.
+  const dt = new Date(Date.UTC(y, mo - 1, d));
+  return dt;
 }
