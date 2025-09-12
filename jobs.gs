@@ -7,16 +7,27 @@ function jobFetch() {
     var start = Date.now();
     var username = ConfigRepo.get('username'); if (!username) throw new Error('Username not configured.');
     var archives = ChessApi.getArchives(username);
-    // Process all archives by default; allow optional cap via Config if >0
+    // Always refresh newest N archives and process historical archives via a persisted cursor
+    var lastN = CONSTANTS.ALWAYS_REFRESH_LAST_N || 2;
+    var recentArchives = archives.slice(Math.max(0, archives.length - lastN));
+    var historicalArchives = archives.slice(0, Math.max(0, archives.length - lastN));
+    var histCursor = ConfigRepo.getNumber('HIST_ARCHIVE_CURSOR') || 0;
+    if (histCursor < 0) histCursor = 0;
+    if (histCursor > historicalArchives.length) histCursor = historicalArchives.length;
+    // Optional cap limits recent archives per run; historical handled by cursor
     var cfgMaxArchives = ConfigRepo.getNumber('MAX_ARCHIVES_PER_RUN');
-    var toProcess = (cfgMaxArchives && cfgMaxArchives > 0) ? archives.slice(Math.max(0, archives.length - cfgMaxArchives)) : archives.slice();
+    if (cfgMaxArchives && cfgMaxArchives > 0) {
+      recentArchives = recentArchives.slice(Math.max(0, recentArchives.length - cfgMaxArchives));
+    }
     var existing = GamesRepo.readExistingUrlSet();
     var rows=[]; var queueItems=[]; var gamesCount=0;
     var cfgMaxGames = ConfigRepo.getNumber('MAX_GAMES_PER_RUN'); var maxGames = (cfgMaxGames==null || cfgMaxGames<=0) ? Infinity : cfgMaxGames;
-    var batchSize = Math.min(CONSTANTS.BATCH_SIZE, 25);
-    for (var bi=0; bi<toProcess.length; bi+=batchSize) {
+    var batchSize = Math.min(CONSTANTS.BATCH_SIZE, 100);
+    var archivesProcessedFromHistorical = 0;
+    // 1) Process newest months first so new games show up quickly
+    for (var bi=0; bi<recentArchives.length; bi+=batchSize) {
       if ((Date.now()-start) > (CONSTANTS.MAX_EXECUTION_TIME-5000)) break;
-      var batch = toProcess.slice(bi, bi+batchSize);
+      var batch = recentArchives.slice(bi, bi+batchSize);
       var monthlyResults = ChessApi.getMonthlyGamesBatch(batch);
       for (var b=0;b<monthlyResults.length;b++) {
         var monthly = (monthlyResults[b] && monthlyResults[b].games) ? monthlyResults[b].games : [];
@@ -76,6 +87,74 @@ function jobFetch() {
         if (gamesCount>=maxGames) break;
         }
         if (gamesCount>=maxGames) break;
+      }
+    }
+    // 2) If time remains and cap not hit, process historical archives using cursor
+    if ((Date.now()-start) <= (CONSTANTS.MAX_EXECUTION_TIME-5000) && gamesCount < maxGames && histCursor < historicalArchives.length) {
+      for (var hi=histCursor; hi<historicalArchives.length; hi+=batchSize) {
+        if ((Date.now()-start) > (CONSTANTS.MAX_EXECUTION_TIME-5000) || gamesCount>=maxGames) break;
+        var hBatch = historicalArchives.slice(hi, hi+batchSize);
+        var monthlyResultsH = ChessApi.getMonthlyGamesBatch(hBatch);
+        archivesProcessedFromHistorical += monthlyResultsH.length;
+        for (var hb=0;hb<monthlyResultsH.length;hb++) {
+          var monthlyH = (monthlyResultsH[hb] && monthlyResultsH[hb].games) ? monthlyResultsH[hb].games : [];
+          for (var hj=monthlyH.length-1;hj>=0;hj--) {
+            var gh = monthlyH[hj]; var urlh = gh.url; if (!urlh || existing.has(urlh)) continue; existing.add(urlh);
+            var whiteh = gh.white||{}; var blackh=gh.black||{};
+            var myColorh = null; var myUserh = (ConfigRepo.get('username')||'').toLowerCase();
+            if (whiteh.username && whiteh.username.toLowerCase()===myUserh) myColorh='white'; else if (blackh.username && blackh.username.toLowerCase()===myUserh) myColorh='black';
+            var whiteOutcomeh = Types.resultToOutcome(whiteh.result); var blackOutcomeh = Types.resultToOutcome(blackh.result);
+            var overallNumh = Types.overallOutcomeNumeric(whiteh.result, blackh.result);
+            var myOutcomeh = myColorh==='white'? whiteOutcomeh : (myColorh==='black'? blackOutcomeh : null);
+            var oppOutcomeh = (myOutcomeh==null)? null : (1 - myOutcomeh);
+            var tzh = Session.getScriptTimeZone();
+            var endMsh = gh.end_time ? new Date(gh.end_time*1000) : null;
+            var endStrh = endMsh ? Utilities.formatDate(endMsh, tzh, CONSTANTS.TIME_FORMAT_DATETIME) : '';
+            var dh = endMsh || new Date();
+            var rowMaph = {
+              url: urlh,
+              rated: gh.rated || false,
+              time_control: gh.time_control || '',
+              start: '',
+              end: endStrh,
+              date: Utilities.formatDate(dh, tzh, CONSTANTS.TIME_FORMAT_DATE),
+              year: dh.getFullYear(), month: dh.getMonth()+1, day: dh.getDate(), hour: dh.getHours(), minute: dh.getMinutes(), second: dh.getSeconds(),
+              white_username: whiteh.username||'', white_rating: whiteh.rating||'', white_result: whiteh.result||'',
+              black_username: blackh.username||'', black_rating: blackh.rating||'', black_result: blackh.result||'',
+              rules: gh.rules||'chess', time_class: gh.time_class||'', format: '', eco: '', eco_url: '', termination: gh.termination||'',
+              my_color: myColorh, my_username: ConfigRepo.get('username')||'', my_rating: (myColorh==='white'? whiteh.rating : (myColorh==='black'? blackh.rating: '')),
+              my_outcome: myOutcomeh, opponent_username: (myColorh==='white' ? (blackh.username||'') : (myColorh==='black'? (whiteh.username||'') : '')),
+              opponent_rating: (myColorh==='white' ? (blackh.rating||'') : (myColorh==='black'? (whiteh.rating||'') : '')),
+              opponent_outcome: oppOutcomeh,
+              overall_outcome_numeric: overallNumh,
+              base_time_seconds: null, increment_seconds: null,
+              my_pregame_rating: '', opponent_pregame_rating: '', my_rating_change_callback: '', opponent_rating_change_callback: '',
+              white_accuracy: '', black_accuracy: '', callback_processed: false, callback_timestamp: '', callback_game_id: '',
+              game_duration_seconds: '', move_count: '', ply_count: '', moves_san: '', moves_numbered: '', clocks: '', clock_seconds: '', time_per_move: '',
+              processed_timestamp: new Date().toISOString(), processing_version: '2.0'
+            };
+            var tch = String(gh.time_control||'');
+            if (tch.indexOf('/')>=0) { var partsh = tch.split('/'); rowMaph.base_time_seconds = Number(partsh[1]||0); rowMaph.increment_seconds = 0; }
+            else if (tch.indexOf('+')>=0) { var ph = tch.split('+'); rowMaph.base_time_seconds = Number(ph[0]||0); rowMaph.increment_seconds = Number(ph[1]||0); }
+            else { rowMaph.base_time_seconds = Number(tch||0); rowMaph.increment_seconds = 0; }
+            if (gh.url && gh.url.indexOf('/daily/')>=0) { rowMaph.format = (gh.rules==='chess960')? 'daily960' : 'daily'; }
+            else if (gh.rules && gh.rules!=='chess') { rowMaph.format = (gh.rules==='chess960')? 'live960' : gh.rules; }
+            else if (gh.time_class) { rowMaph.format = gh.time_class; }
+            else { var clsh = (rowMaph.base_time_seconds + (rowMaph.increment_seconds||0)*40); rowMaph.format = (clsh<180?'bullet':(clsh<480?'blitz':(clsh<1500?'rapid':'daily'))); }
+            var hh = GamesRepo.headers(); var rowh = new Array(hh.length).fill('');
+            for (var hk=0;hk<hh.length;hk++) { var keyh=hh[hk]; if (rowMaph.hasOwnProperty(keyh)) rowh[hk]=rowMaph[keyh]; }
+            rows.push(rowh); gamesCount++;
+            queueItems.push({ id: Utilities.getUuid(), type: 'heavy_derivation', key: urlh, url: urlh, status: 'pending', attempts: 0, nextAttemptAt: '', lastError: '', payload: {}, addedAt: new Date(), updatedAt: new Date() });
+            queueItems.push({ id: Utilities.getUuid(), type: 'callback_enrich', key: urlh, url: urlh, status: 'pending', attempts: 0, nextAttemptAt: '', lastError: '', payload: {}, addedAt: new Date(), updatedAt: new Date() });
+            if (gamesCount>=maxGames) break;
+          }
+          if (gamesCount>=maxGames) break;
+        }
+      }
+      if (archivesProcessedFromHistorical > 0) {
+        var newCursor = Math.min(historicalArchives.length, histCursor + archivesProcessedFromHistorical);
+        ConfigRepo.set('HIST_ARCHIVE_CURSOR', newCursor);
+        if (newCursor >= historicalArchives.length) ConfigRepo.set('HIST_ARCHIVE_DONE', true);
       }
     }
     if (rows.length>0) GamesRepo.appendRows(rows);
