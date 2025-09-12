@@ -14,6 +14,8 @@ if (typeof CONSTANTS === 'undefined') {
   MAX_EXECUTION_TIME: 300000, // 5 minutes in milliseconds
   API_RATE_LIMIT: 300, // requests per hour
   API_RATE_PERIOD: 3600000, // 1 hour in milliseconds
+  // Always refresh the most recent N archives (current/previous month)
+  ALWAYS_REFRESH_LAST_N: 2,
   MAX_RETRIES: 3,
   RETRY_DELAY: 2000, // 2 seconds
   
