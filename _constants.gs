@@ -195,7 +195,7 @@ if (typeof CONSTANTS === 'undefined') {
       'processed_timestamp': { group: 'Processing', hidden: true },
       'processing_version': { group: 'Processing', hidden: true }
     }
-  }
+  },
   
   // Variants
   VARIANTS: [
