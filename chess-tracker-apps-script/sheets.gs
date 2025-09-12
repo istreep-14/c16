@@ -67,6 +67,31 @@ function insertRowsAtTop_(sheetName, rows) {
   range.setValues(rows);
 }
 
+function appendRows_(sheetName, rows) {
+  if (!rows || rows.length === 0) return;
+  const ss = getSpreadsheet_();
+  const sheet = ss.getSheetByName(sheetName);
+  if (!sheet) throw new Error(`Sheet not found: ${sheetName}`);
+  const lastRow = sheet.getLastRow();
+  const startRow = lastRow === 0 ? 1 : lastRow + 1;
+  const range = sheet.getRange(startRow, 1, rows.length, rows[0].length);
+  range.setValues(rows);
+}
+
+function sortSheetByHeaderDesc_(sheetName, headerName) {
+  const ss = getSpreadsheet_();
+  const sheet = ss.getSheetByName(sheetName);
+  if (!sheet) return;
+  const lastRow = sheet.getLastRow();
+  const lastCol = sheet.getLastColumn();
+  if (lastRow < 3 || lastCol < 1) return; // need at least header + 2 rows to benefit
+  const headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+  const colIndex = headers.indexOf(headerName) + 1;
+  if (colIndex <= 0) return;
+  const range = sheet.getRange(2, 1, lastRow - 1, lastCol);
+  range.sort([{column: colIndex, ascending: false}]);
+}
+
 function findRowIndexByValue_(sheetName, headerName, value) {
   const ss = getSpreadsheet_();
   const sheet = ss.getSheetByName(sheetName);

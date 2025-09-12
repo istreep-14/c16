@@ -129,6 +129,10 @@ function fetchNewGamesAndEnqueueCallbacks() {
           if (idx['white_rating_diff'] >= 0 && h.white_rating_diff) metaRow[idx['white_rating_diff']] = h.white_rating_diff;
           if (idx['black_rating_diff'] >= 0 && h.black_rating_diff) metaRow[idx['black_rating_diff']] = h.black_rating_diff;
           if (idx['ply_count'] >= 0 && h.ply_count) metaRow[idx['ply_count']] = h.ply_count;
+          // Duration from PGN if start/end present
+          const startD = (h.date && h.start_time) ? parseDateTimeFromPgnParts_(h.date, h.start_time, true) : (h.utc_date && h.utc_time ? parseDateTimeFromPgnParts_(h.utc_date, h.utc_time, true) : null);
+          const endD = (h.end_date && h.end_time) ? parseDateTimeFromPgnParts_(h.end_date, h.end_time, true) : null;
+          if (idx['game_duration_seconds'] >= 0 && startD && endD) metaRow[idx['game_duration_seconds']] = Math.max(0, Math.round((endD - startD) / 1000));
         }
 
         metaRowsToInsert.push(metaRow);
@@ -145,13 +149,20 @@ function fetchNewGamesAndEnqueueCallbacks() {
       });
     }
 
-    // Insert new rows at top
+    // Append new rows and sort newest-to-oldest
     if (gamesRowsToInsert.length > 0) {
-      insertRowsAtTop_(SHEET_NAMES.GAMES, gamesRowsToInsert);
+      appendRows_(SHEET_NAMES.GAMES, gamesRowsToInsert);
+      // Sort by end_time_iso descending
+      sortSheetByHeaderDesc_(SHEET_NAMES.GAMES, 'end_time_iso');
     }
     if (metaRowsToInsert.length > 0) {
-      insertRowsAtTop_(SHEET_NAMES.GAMEMETA, metaRowsToInsert);
+      appendRows_(SHEET_NAMES.GAMEMETA, metaRowsToInsert);
+      // Sort by last_updated_iso descending
+      sortSheetByHeaderDesc_(SHEET_NAMES.GAMEMETA, 'last_updated_iso');
     }
+
+    // Keep Archives newest months on top
+    sortSheetByHeaderDesc_(SHEET_NAMES.ARCHIVES, 'archive_month');
   });
 }
 

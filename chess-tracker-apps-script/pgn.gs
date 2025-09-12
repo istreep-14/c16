@@ -21,5 +21,13 @@ function parsePgnHeaders_(pgnText) {
   if (headers.BlackRatingDiff) result.black_rating_diff = headers.BlackRatingDiff;
   if (headers.PlyCount) result.ply_count = headers.PlyCount;
   if (result.eco) result.eco_url = `https://www.chess.com/openings?eco=${encodeURIComponent(result.eco)}`;
+  // Raw date/time fields for downstream derivation
+  if (headers.Date) result.date = headers.Date;           // e.g., 2025.09.12
+  if (headers.EndDate) result.end_date = headers.EndDate; // e.g., 2025.09.12
+  if (headers.StartDate) result.start_date = headers.StartDate;
+  if (headers.StartTime) result.start_time = headers.StartTime; // e.g., 13:05:22
+  if (headers.EndTime) result.end_time = headers.EndTime;       // e.g., 13:25:41
+  if (headers.UTCDate) result.utc_date = headers.UTCDate;       // e.g., 2025.09.12
+  if (headers.UTCTime) result.utc_time = headers.UTCTime;       // e.g., 12:05:22
   return result;
 }

@@ -58,8 +58,27 @@ function parseGamesForUser_(username, yearMonth, games) {
   const uname = String(username).toLowerCase();
   const rows = [];
   for (const g of games) {
-    const endIso = g.end_time ? new Date(g.end_time * 1000).toISOString() : '';
-    const dateKey = endIso ? endIso.slice(0, 10) : '';
+    const tz = Session.getScriptTimeZone();
+    const pgnHeaders = g.pgn ? parsePgnHeaders_(g.pgn) : null;
+    // Derive end date/time
+    let endDate = g.end_time ? new Date(g.end_time * 1000) : null;
+    if (!endDate && pgnHeaders) {
+      if (pgnHeaders.end_date && pgnHeaders.end_time) {
+        endDate = parseDateTimeFromPgnParts_(pgnHeaders.end_date, pgnHeaders.end_time, true);
+      } else if (pgnHeaders.utc_date && pgnHeaders.utc_time) {
+        endDate = parseDateTimeFromPgnParts_(pgnHeaders.utc_date, pgnHeaders.utc_time, true);
+      }
+    }
+    // Derive start date/time
+    let startDate = g.start_time ? new Date(g.start_time * 1000) : null;
+    if (!startDate && pgnHeaders) {
+      if (pgnHeaders.date && pgnHeaders.start_time) {
+        startDate = parseDateTimeFromPgnParts_(pgnHeaders.date, pgnHeaders.start_time, true);
+      } else if (pgnHeaders.utc_date && pgnHeaders.utc_time) {
+        startDate = parseDateTimeFromPgnParts_(pgnHeaders.utc_date, pgnHeaders.utc_time, true);
+      }
+    }
+    const dateKey = endDate ? Utilities.formatDate(endDate, tz, 'yyyy-MM-dd') : (startDate ? Utilities.formatDate(startDate, tz, 'yyyy-MM-dd') : '');
     const whiteUser = (g.white && g.white.username) ? String(g.white.username) : '';
     const blackUser = (g.black && g.black.username) ? String(g.black.username) : '';
     const userIsWhite = whiteUser.toLowerCase() === uname;
@@ -71,7 +90,7 @@ function parseGamesForUser_(username, yearMonth, games) {
     const opponentRating = userIsWhite ? (g.black && g.black.rating) : (g.white && g.white.rating);
     const userResult = userIsWhite ? (g.white && g.white.result) : (g.black && g.black.result);
 
-    const startIso = g.start_time ? new Date(g.start_time * 1000).toISOString() : '';
+    const startIso = startDate || '';
     const rated = !!g.rated;
     const rules = g.rules || '';
     const timeClass = g.time_class || '';
@@ -82,8 +101,8 @@ function parseGamesForUser_(username, yearMonth, games) {
       url,                // game_id
       yearMonth,          // archive_month
       dateKey,            // date_key
-      startIso,           // start_time_iso
-      endIso,             // end_time_iso
+      startIso,           // start_time_iso (as Date, not ISO string)
+      endDate || '',      // end_time_iso (as Date, not ISO string)
       timeClass,          // time_class
       format,             // format
       rated,              // rated
@@ -101,6 +120,19 @@ function parseGamesForUser_(username, yearMonth, games) {
     rows.push(row);
   }
   return rows;
+}
+
+function parseDateTimeFromPgnParts_(dateStr, timeStr, assumeUTC) {
+  if (!dateStr || !timeStr) return null;
+  // Normalize date: supports YYYY.MM.DD or YYYY-MM-DD
+  const normDate = String(dateStr).replace(/\./g, '-');
+  const m = normDate.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  const t = String(timeStr).match(/^(\d{2}):(\d{2}):(\d{2})$/);
+  if (!m || !t) return null;
+  const y = Number(m[1]); const mo = Number(m[2]); const d = Number(m[3]);
+  const hh = Number(t[1]); const mm = Number(t[2]); const ss = Number(t[3]);
+  if (assumeUTC) return new Date(Date.UTC(y, mo - 1, d, hh, mm, ss));
+  return new Date(y, mo - 1, d, hh, mm, ss);
 }
 
 function buildMonthlyPgn_(games) {
