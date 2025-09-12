@@ -48,3 +48,45 @@ function updateDailyStatsAndSeal() {
     }
   }
 }
+
+function recomputeAllDailyStats() {
+  const ss = getSpreadsheet_();
+  const gamesSheet = ss.getSheetByName(SHEET_NAMES.GAMES);
+  if (!gamesSheet) return;
+  const lastRow = gamesSheet.getLastRow();
+  if (lastRow < 2) return;
+
+  const headers = GAMES_HEADERS;
+  const hIndex = {};
+  headers.forEach((h, i) => hIndex[h] = i);
+
+  const values = gamesSheet.getRange(2, 1, lastRow - 1, headers.length).getValues();
+
+  const agg = new Map(); // key: date|format|time_class -> {gp,w,l,d}
+  for (const row of values) {
+    const dateKey = row[hIndex['date_key']];
+    if (!dateKey) continue;
+    const format = row[hIndex['format']] || '';
+    const timeClass = row[hIndex['time_class']] || '';
+    const result = String(row[hIndex['result']] || '');
+    const key = `${dateKey}|${format}|${timeClass}`;
+    if (!agg.has(key)) agg.set(key, {gp: 0, w: 0, l: 0, d: 0});
+    const a = agg.get(key);
+    a.gp++;
+    if (result === 'win') a.w++; else if (result === 'draw') a.d++; else a.l++;
+  }
+
+  const dsSheet = getOrCreateSheet_(SHEET_NAMES.DAILYSTATS, DAILYSTATS_HEADERS);
+  const existingRows = dsSheet.getLastRow();
+  if (existingRows > 1) {
+    dsSheet.getRange(2, 1, existingRows - 1, DAILYSTATS_HEADERS.length).clearContent();
+  }
+
+  const rowsOut = [];
+  for (const [key, a] of agg.entries()) {
+    const [dateKey, format, timeClass] = key.split('|');
+    rowsOut.push([dateKey, format, timeClass, a.gp, a.w, a.l, a.d, '', '', '', '', getIsoNow()]);
+  }
+  rowsOut.sort((r1, r2) => (r1[0] < r2[0] ? 1 : (r1[0] > r2[0] ? -1 : 0))); // date desc
+  if (rowsOut.length > 0) insertRowsAtTop_(SHEET_NAMES.DAILYSTATS, rowsOut);
+}
