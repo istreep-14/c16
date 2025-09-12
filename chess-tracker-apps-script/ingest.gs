@@ -145,13 +145,20 @@ function fetchNewGamesAndEnqueueCallbacks() {
       });
     }
 
-    // Insert new rows at top
+    // Append new rows and sort newest-to-oldest
     if (gamesRowsToInsert.length > 0) {
-      insertRowsAtTop_(SHEET_NAMES.GAMES, gamesRowsToInsert);
+      appendRows_(SHEET_NAMES.GAMES, gamesRowsToInsert);
+      // Sort by end_time_iso descending
+      sortSheetByHeaderDesc_(SHEET_NAMES.GAMES, 'end_time_iso');
     }
     if (metaRowsToInsert.length > 0) {
-      insertRowsAtTop_(SHEET_NAMES.GAMEMETA, metaRowsToInsert);
+      appendRows_(SHEET_NAMES.GAMEMETA, metaRowsToInsert);
+      // Sort by last_updated_iso descending
+      sortSheetByHeaderDesc_(SHEET_NAMES.GAMEMETA, 'last_updated_iso');
     }
+
+    // Keep Archives newest months on top
+    sortSheetByHeaderDesc_(SHEET_NAMES.ARCHIVES, 'archive_month');
   });
 }
 
