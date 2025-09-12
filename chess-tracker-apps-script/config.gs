@@ -14,7 +14,11 @@ const GAMES_HEADERS = [
 
 const GAMEMETA_HEADERS = [
   'game_id','callback_status','callback_file_id','callback_error','last_updated_iso',
-  'eco','opening','termination','time_control','white_elo','black_elo','white_rating_diff','black_rating_diff','ply_count'
+  // PGN-derived
+  'eco','opening','termination','time_control','white_elo','black_elo','white_rating_diff','black_rating_diff','ply_count',
+  // JSON-derived (Chess.com API)
+  'uuid','fen','initial_setup','tcn','tournament','match',
+  'white_username','black_username','white_result','black_result','white_accuracy','black_accuracy'
 ];
 
 const DAILYSTATS_HEADERS = [
