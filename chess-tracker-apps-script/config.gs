@@ -9,7 +9,24 @@ const SHEET_NAMES = {
 };
 
 const GAMES_HEADERS = [
-  'game_id','archive_month','date_key','start_time_iso','end_time_iso','time_class','rated','rules','color','opponent','opponent_rating','result','url','pgn_file_id','pgn_offset_start','pgn_offset_end'
+  'game_id',
+  'archive_month',
+  'date_key',
+  'start_time_iso',
+  'end_time_iso',
+  'time_class',
+  'format',
+  'rated',
+  'rules',
+  'speed',
+  'color',
+  'opponent',
+  'opponent_rating',
+  'result',
+  'url',
+  'pgn_file_id',
+  'pgn_offset_start',
+  'pgn_offset_end'
 ];
 
 const GAMEMETA_HEADERS = [
@@ -22,7 +39,18 @@ const GAMEMETA_HEADERS = [
 ];
 
 const DAILYSTATS_HEADERS = [
-  'date_key','time_class','games_played','wins','losses','draws','streak','rating_start','rating_end','avg_opponent_rating','last_computed_iso'
+  'date_key',
+  'format',
+  'time_class',
+  'games_played',
+  'wins',
+  'losses',
+  'draws',
+  'streak',
+  'rating_start',
+  'rating_end',
+  'avg_opponent_rating',
+  'last_computed_iso'
 ];
 
 const ARCHIVES_HEADERS = [

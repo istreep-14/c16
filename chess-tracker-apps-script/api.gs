@@ -32,6 +32,23 @@ function fetchArchiveMonth_(username, yearMonth, prevEtag) {
   return {unchanged: false, etag, games};
 }
 
+function deriveFormatAndSpeed_(rules, timeClass) {
+  const r = String(rules || '').toLowerCase();
+  const t = String(timeClass || '').toLowerCase();
+  const isDaily = t === 'daily';
+  const isLive = t === 'bullet' || t === 'blitz' || t === 'rapid';
+  let format = '';
+  if (r === 'chess') {
+    format = t; // bullet|blitz|rapid|daily
+  } else if (r === 'chess960') {
+    format = isDaily ? 'daily_chess960' : 'live_chess960';
+  } else if (r) {
+    format = isDaily ? `daily_${r}` : `live_${r}`; // generic fallback for variants
+  }
+  const speed = isDaily ? 'daily' : (isLive ? 'live' : '');
+  return {format, speed};
+}
+
 function parseGamesForUser_(username, yearMonth, games) {
   const uname = String(username).toLowerCase();
   const rows = [];
@@ -53,6 +70,7 @@ function parseGamesForUser_(username, yearMonth, games) {
     const rated = !!g.rated;
     const rules = g.rules || '';
     const timeClass = g.time_class || '';
+    const {format, speed} = deriveFormatAndSpeed_(rules, timeClass);
     const url = g.url || '';
 
     const row = [
@@ -62,8 +80,10 @@ function parseGamesForUser_(username, yearMonth, games) {
       startIso,           // start_time_iso
       endIso,             // end_time_iso
       timeClass,          // time_class
+      format,             // format
       rated,              // rated
       rules,              // rules
+      speed,              // speed
       color,              // color
       opponent,           // opponent
       Number(opponentRating || 0), // opponent_rating
