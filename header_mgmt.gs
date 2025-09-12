@@ -6,6 +6,40 @@ var HeaderManager = (function(){
   var SHEET = 'Headers';
   var COLS = ['name','group','order','hidden','color'];
 
+  function colToA1(colIndex) {
+    var dividend = colIndex;
+    var columnName = '';
+    while (dividend > 0) {
+      var modulo = (dividend - 1) % 26;
+      columnName = String.fromCharCode(65 + modulo) + columnName;
+      dividend = Math.floor((dividend - modulo) / 26);
+    }
+    return columnName;
+  }
+
+  function updateHeaderLinks(gamesHeaderOrder) {
+    try {
+      var ss = SpreadsheetApp.getActiveSpreadsheet();
+      var headersSheet = ensureSheet();
+      var gamesSheet = ss.getSheetByName(CONSTANTS.SHEETS.GAMES) || HeaderRepo.ensureGamesSheet();
+      var order = gamesHeaderOrder && gamesHeaderOrder.length ? gamesHeaderOrder : gamesSheet.getRange(1,1,1,gamesSheet.getLastColumn()).getValues()[0];
+      var indexByName = {}; for (var i=0;i<order.length;i++) indexByName[String(order[i])] = i+1; // 1-based
+      var urlBase = ss.getUrl();
+      var gid = gamesSheet.getSheetId();
+      var data = headersSheet.getDataRange().getValues();
+      for (var r=1;r<data.length;r++) { // skip header row
+        var name = String(data[r][0]||''); if (!name) continue;
+        var col = indexByName[name]; if (!col) continue;
+        var a1 = colToA1(col) + '1';
+        var link = urlBase + '#gid=' + gid + '&range=' + a1;
+        var rich = SpreadsheetApp.newRichTextValue().setText(name).setLinkUrl(link).build();
+        headersSheet.getRange(r+1, 1).setRichTextValue(rich);
+      }
+    } catch (e) {
+      // Best-effort; do not fail layout if linking fails
+    }
+  }
+
   function ensureSheet() {
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     var sh = ss.getSheetByName(SHEET) || ss.insertSheet(SHEET);
@@ -30,6 +64,7 @@ var HeaderManager = (function(){
       rows.push([name, meta.group||'', i+1, meta.hidden===true, color]);
     }
     if (rows.length>0) sh.getRange(2,1,rows.length,COLS.length).setValues(rows);
+    updateHeaderLinks(headers);
   }
 
   function readGamesConfig() {
@@ -92,6 +127,7 @@ var HeaderManager = (function(){
       if (meta && meta.color) tmp.getRange(1,i+1).setBackground(meta.color);
       if (meta && meta.hidden) tmp.hideColumns(i+1);
     }
+    updateHeaderLinks(desired);
     return { columns: desired.length };
   }
 
