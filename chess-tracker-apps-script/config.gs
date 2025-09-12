@@ -13,7 +13,8 @@ const GAMES_HEADERS = [
 ];
 
 const GAMEMETA_HEADERS = [
-  'game_id','callback_status','callback_file_id','callback_error','last_updated_iso'
+  'game_id','callback_status','callback_file_id','callback_error','last_updated_iso',
+  'eco','opening','termination','time_control','white_elo','black_elo','white_rating_diff','black_rating_diff','ply_count'
 ];
 
 const DAILYSTATS_HEADERS = [
