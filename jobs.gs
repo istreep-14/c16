@@ -23,7 +23,6 @@ function jobFetch() {
         if (white.username && white.username.toLowerCase()===myUser) myColor='white'; else if (black.username && black.username.toLowerCase()===myUser) myColor='black';
         var whiteOutcome = Types.resultToOutcome(white.result); var blackOutcome = Types.resultToOutcome(black.result);
         var overallNum = Types.overallOutcomeNumeric(white.result, black.result);
-        var overallTxt = Types.overallOutcomeText(overallNum);
         var myOutcome = myColor==='white'? whiteOutcome : (myColor==='black'? blackOutcome : null);
         var oppOutcome = (myOutcome==null)? null : (1 - myOutcome);
         var tz = Session.getScriptTimeZone();
@@ -45,7 +44,7 @@ function jobFetch() {
           my_outcome: myOutcome, opponent_username: (myColor==='white' ? (black.username||'') : (myColor==='black'? (white.username||'') : '')),
           opponent_rating: (myColor==='white' ? (black.rating||'') : (myColor==='black'? (white.rating||'') : '')),
           opponent_outcome: oppOutcome,
-          overall_outcome_numeric: overallNum, overall_outcome_text: overallTxt,
+          overall_outcome_numeric: overallNum,
           base_time_seconds: null, increment_seconds: null,
           my_pregame_rating: '', opponent_pregame_rating: '', my_rating_change_callback: '', opponent_rating_change_callback: '',
           white_accuracy: '', black_accuracy: '', callback_processed: false, callback_timestamp: '', callback_game_id: '',

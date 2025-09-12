@@ -103,7 +103,7 @@ if (typeof CONSTANTS === 'undefined') {
       // Perspective
       'my_color', 'my_username', 'my_rating', 'my_outcome', 'opponent_username', 'opponent_rating', 'opponent_outcome',
       // Overall outcome
-      'overall_outcome_numeric', 'overall_outcome_text',
+      'overall_outcome_numeric',
       // Parsed time control
       'base_time_seconds', 'increment_seconds',
       // Callback-derived (optional)
@@ -165,7 +165,6 @@ if (typeof CONSTANTS === 'undefined') {
       'my_outcome': { group: 'Results', hidden: false },
       'opponent_outcome': { group: 'Results', hidden: true },
       'overall_outcome_numeric': { group: 'Results', hidden: false },
-      'overall_outcome_text': { group: 'Results', hidden: true },
       'termination': { group: 'Results', hidden: true },
       // Metadata
       'rules': { group: 'Metadata', hidden: true },
