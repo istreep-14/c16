@@ -76,7 +76,7 @@ function fetchNewGamesAndEnqueueCallbacks() {
       const pgnText = buildMonthlyPgn_(gamesRaw);
       const pgnFileId = pgnText ? saveMonthlyPgn(username, ym, pgnText) : '';
 
-      // Optionally save JSON as well
+      // Save JSON as well
       const jsonText = JSON.stringify({games: gamesRaw});
       const jsonFileId = saveMonthlyJson(username, ym, jsonText);
 
@@ -88,22 +88,49 @@ function fetchNewGamesAndEnqueueCallbacks() {
 
       gamesRowsToInsert.push(...parsedRows);
 
-      // One meta row per game (pad to header length)
+      // Prefill GameMeta from JSON/PGN when available
       const metaHeaders = GAMEMETA_HEADERS;
-      const gidIdx = metaHeaders.indexOf('game_id');
-      const statusIdx = metaHeaders.indexOf('callback_status');
-      const fileIdx = metaHeaders.indexOf('callback_file_id');
-      const errIdx = metaHeaders.indexOf('callback_error');
-      const updIdx = metaHeaders.indexOf('last_updated_iso');
+      const idx = {};
+      metaHeaders.forEach((h, i) => idx[h] = i);
 
-      for (const row of parsedRows) {
-        const gid = row[0];
+      for (const game of gamesRaw) {
+        const url = game.url || '';
+        // Only add meta rows for newly parsed game rows
+        const hasRow = parsedRows.find(r => r[0] === url);
+        if (!hasRow) continue;
         const metaRow = new Array(metaHeaders.length).fill('');
-        if (gidIdx >= 0) metaRow[gidIdx] = gid;
-        if (statusIdx >= 0) metaRow[statusIdx] = 'pending';
-        if (fileIdx >= 0) metaRow[fileIdx] = '';
-        if (errIdx >= 0) metaRow[errIdx] = '';
-        if (updIdx >= 0) metaRow[updIdx] = getIsoNow();
+        if (idx['game_id'] >= 0) metaRow[idx['game_id']] = url;
+        if (idx['callback_status'] >= 0) metaRow[idx['callback_status']] = 'pending';
+        if (idx['last_updated_iso'] >= 0) metaRow[idx['last_updated_iso']] = getIsoNow();
+        // JSON-derived where present
+        if (idx['uuid'] >= 0 && game.uuid) metaRow[idx['uuid']] = game.uuid;
+        if (idx['fen'] >= 0 && game.fen) metaRow[idx['fen']] = game.fen;
+        if (idx['initial_setup'] >= 0 && game.initial_setup) metaRow[idx['initial_setup']] = game.initial_setup;
+        if (idx['tcn'] >= 0 && game.tcn) metaRow[idx['tcn']] = game.tcn;
+        if (idx['tournament'] >= 0 && game.tournament) metaRow[idx['tournament']] = game.tournament;
+        if (idx['match'] >= 0 && game.match) metaRow[idx['match']] = game.match;
+        if (idx['white_username'] >= 0 && game.white && game.white.username) metaRow[idx['white_username']] = game.white.username;
+        if (idx['black_username'] >= 0 && game.black && game.black.username) metaRow[idx['black_username']] = game.black.username;
+        if (idx['white_result'] >= 0 && game.white && game.white.result) metaRow[idx['white_result']] = game.white.result;
+        if (idx['black_result'] >= 0 && game.black && game.black.result) metaRow[idx['black_result']] = game.black.result;
+        if (idx['white_accuracy'] >= 0 && game.accuracies && game.accuracies.white != null) metaRow[idx['white_accuracy']] = game.accuracies.white;
+        if (idx['black_accuracy'] >= 0 && game.accuracies && game.accuracies.black != null) metaRow[idx['black_accuracy']] = game.accuracies.black;
+
+        // PGN-derived: only parse one game's PGN if embedded; monthly PGN concatenation is stored separately
+        if (game.pgn) {
+          const h = parsePgnHeaders_(game.pgn);
+          if (idx['eco'] >= 0 && h.eco) metaRow[idx['eco']] = h.eco;
+          if (idx['eco_url'] >= 0 && h.eco_url) metaRow[idx['eco_url']] = h.eco_url;
+          if (idx['opening'] >= 0 && h.opening) metaRow[idx['opening']] = h.opening;
+          if (idx['termination'] >= 0 && h.termination) metaRow[idx['termination']] = h.termination;
+          if (idx['time_control'] >= 0 && h.time_control) metaRow[idx['time_control']] = h.time_control;
+          if (idx['white_elo'] >= 0 && h.white_elo) metaRow[idx['white_elo']] = h.white_elo;
+          if (idx['black_elo'] >= 0 && h.black_elo) metaRow[idx['black_elo']] = h.black_elo;
+          if (idx['white_rating_diff'] >= 0 && h.white_rating_diff) metaRow[idx['white_rating_diff']] = h.white_rating_diff;
+          if (idx['black_rating_diff'] >= 0 && h.black_rating_diff) metaRow[idx['black_rating_diff']] = h.black_rating_diff;
+          if (idx['ply_count'] >= 0 && h.ply_count) metaRow[idx['ply_count']] = h.ply_count;
+        }
+
         metaRowsToInsert.push(metaRow);
       }
 
