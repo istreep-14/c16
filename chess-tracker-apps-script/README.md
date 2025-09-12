@@ -13,6 +13,13 @@ Google Apps Script project to track Chess.com games into Google Sheets with mont
 4. Run `setupProject()` once to create sheets, headers, and Drive folders.
 5. Run `installTriggers()` to schedule hourly/daily jobs.
 
+### Historical backfill (first run)
+
+1. Run `startBackfill()` to index all archive months.
+2. Run `continueBackfill()` repeatedly until it reports `Remaining: 0`.
+   - Optional: run `installBackfillTrigger()` to process every 10 minutes, then `removeBackfillTriggers()` when done.
+3. Run `recomputeAllDailyStats()` to populate the `DailyStats` sheet across all history.
+
 ## Sheets
 
 - `Games` (PK `game_id`):
