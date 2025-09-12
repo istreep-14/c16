@@ -19,6 +19,7 @@ function fetchNewGamesAndEnqueueCallbacks() {
 
     const newGameRowsByMonth = {};
     const monthlyGamesRaw = {};
+    const etagByMonth = {};
 
     // Ensure Archives sheet exists
     setupSheets_();
@@ -58,6 +59,7 @@ function fetchNewGamesAndEnqueueCallbacks() {
         });
         continue;
       }
+      etagByMonth[ym] = fetched.etag || '';
       monthlyGamesRaw[ym] = fetched.games;
       const parsedRows = parseGamesForUser_(username, ym, fetched.games)
         .filter(r => !knownIds.has(String(r[0])));
@@ -67,6 +69,7 @@ function fetchNewGamesAndEnqueueCallbacks() {
     // Save monthly PGN files and upsert Archives, prepare pgn_file_id for new rows
     const gamesRowsToInsert = [];
     const metaRowsToInsert = [];
+    const pgnIdx = GAMES_HEADERS.indexOf('pgn_file_id');
 
     for (const ym of Object.keys(newGameRowsByMonth)) {
       const gamesRaw = monthlyGamesRaw[ym] || [];
@@ -79,16 +82,29 @@ function fetchNewGamesAndEnqueueCallbacks() {
 
       const parsedRows = newGameRowsByMonth[ym].map(row => {
         const copy = row.slice();
-        copy[13] = pgnFileId; // pgn_file_id column index in GAMES_HEADERS
+        if (pgnIdx >= 0) copy[pgnIdx] = pgnFileId; // pgn_file_id
         return copy;
       });
 
       gamesRowsToInsert.push(...parsedRows);
 
-      // One meta row per game
+      // One meta row per game (pad to header length)
+      const metaHeaders = GAMEMETA_HEADERS;
+      const gidIdx = metaHeaders.indexOf('game_id');
+      const statusIdx = metaHeaders.indexOf('callback_status');
+      const fileIdx = metaHeaders.indexOf('callback_file_id');
+      const errIdx = metaHeaders.indexOf('callback_error');
+      const updIdx = metaHeaders.indexOf('last_updated_iso');
+
       for (const row of parsedRows) {
         const gid = row[0];
-        metaRowsToInsert.push([gid, 'pending', '', '', getIsoNow()]);
+        const metaRow = new Array(metaHeaders.length).fill('');
+        if (gidIdx >= 0) metaRow[gidIdx] = gid;
+        if (statusIdx >= 0) metaRow[statusIdx] = 'pending';
+        if (fileIdx >= 0) metaRow[fileIdx] = '';
+        if (errIdx >= 0) metaRow[errIdx] = '';
+        if (updIdx >= 0) metaRow[updIdx] = getIsoNow();
+        metaRowsToInsert.push(metaRow);
       }
 
       upsertArchivesRow_({
@@ -96,7 +112,7 @@ function fetchNewGamesAndEnqueueCallbacks() {
         status: monthIsFrozen_(ym) ? 'frozen' : 'open',
         json_file_id: jsonFileId,
         pgn_file_id: pgnFileId,
-        etag: '',
+        etag: etagByMonth[ym] || '',
         total_games: (monthlyGamesRaw[ym] || []).length,
         last_checked_iso: getIsoNow()
       });

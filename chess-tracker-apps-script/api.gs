@@ -39,11 +39,16 @@ function deriveFormatAndSpeed_(rules, timeClass) {
   const isLive = t === 'bullet' || t === 'blitz' || t === 'rapid';
   let format = '';
   if (r === 'chess') {
+    // Standard: format is the time class directly
     format = t; // bullet|blitz|rapid|daily
   } else if (r === 'chess960') {
-    format = isDaily ? 'daily_chess960' : 'live_chess960';
+    // Chess960 supports daily and live
+    format = isDaily ? 'chess960_daily' : 'chess960_live';
   } else if (r) {
-    format = isDaily ? `daily_${r}` : `live_${r}`; // generic fallback for variants
+    // Other variants: format is the variant name (live-only variants on Chess.com)
+    format = r;
+  } else {
+    format = t || '';
   }
   const speed = isDaily ? 'daily' : (isLive ? 'live' : '');
   return {format, speed};
@@ -62,7 +67,7 @@ function parseGamesForUser_(username, yearMonth, games) {
     if (!userIsWhite && !userIsBlack) continue;
 
     const color = userIsWhite ? 'white' : 'black';
-    const opponent = userIsWhite ? blackUser : whiteUser;
+    const opponent = userIsWhite ? whiteUser === '' ? '' : blackUser : whiteUser;
     const opponentRating = userIsWhite ? (g.black && g.black.rating) : (g.white && g.white.rating);
     const userResult = userIsWhite ? (g.white && g.white.result) : (g.black && g.black.result);
 
